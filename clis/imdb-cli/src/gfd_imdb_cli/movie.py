@@ -6,7 +6,14 @@ import click
 
 from gfd_imdb_cli.client import get_title, get_title_box_office, get_title_cast
 from gfd_imdb_cli.context import normalize_id
-from gfd_imdb_cli.output import detect_format, error, render, render_single
+from gfd_imdb_cli.output import (
+    detect_format,
+    error,
+    name_link,
+    render,
+    render_single,
+    title_link,
+)
 
 
 def _fmt_money(money: dict | None) -> str:
@@ -68,9 +75,14 @@ def movie_info(movie_id: str, fmt: str | None) -> None:
 
     ratings = m.get("ratingsSummary") or {}
 
+    movie_title = (m.get("titleText") or {}).get("text", "")
+    movie_id = m.get("id", tid)
+    if fmt == "table":
+        movie_title = title_link(movie_id, movie_title)
+
     data = {
-        "id": m.get("id", tid),
-        "title": (m.get("titleText") or {}).get("text", ""),
+        "id": movie_id,
+        "title": movie_title,
         "year": (m.get("releaseYear") or {}).get("year", ""),
         "rating": ratings.get("aggregateRating", ""),
         "votes": ratings.get("voteCount", ""),
@@ -97,14 +109,19 @@ def movie_cast(movie_id: str, fmt: str | None) -> None:
     except Exception as e:
         error(f"IMDB request failed: {e}")
 
+    use_links = fmt == "table"
     rows = []
     for node in cast_list:
         name_obj = node.get("name") or {}
         characters = node.get("characters") or []
         role_name = ", ".join(c.get("name", "") for c in characters)
+        actor_name = (name_obj.get("nameText") or {}).get("text", "")
+        actor_id = name_obj.get("id", "")
+        if use_links and actor_id:
+            actor_name = name_link(actor_id, actor_name)
         rows.append({
-            "id": name_obj.get("id", ""),
-            "name": (name_obj.get("nameText") or {}).get("text", ""),
+            "id": actor_id,
+            "name": actor_name,
             "role": role_name,
         })
 

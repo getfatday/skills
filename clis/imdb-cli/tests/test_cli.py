@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+import asyncio
+from unittest.mock import AsyncMock, patch
 
 from click.testing import CliRunner
 from gfd_imdb_cli.cli import cli
+from gfd_imdb_cli.output import hyperlink
 
 runner = CliRunner()
 
@@ -13,7 +15,7 @@ runner = CliRunner()
 def test_version():
     result = runner.invoke(cli, ["--version"])
     assert result.exit_code == 0
-    assert "0.2.0" in result.output
+    assert "0.4.0" in result.output
 
 
 def test_help():
@@ -172,6 +174,12 @@ def test_top_movies(mock_get_top):
     assert "Matrix" in result.output
 
 
+def test_person_full_help():
+    result = runner.invoke(cli, ["person", "full", "--help"])
+    assert result.exit_code == 0
+    assert "Person bio and filmography combined" in result.output
+
+
 @patch("gfd_imdb_cli.client.get_person")
 def test_person_info(mock_get_person):
     mock_get_person.return_value = {
@@ -185,3 +193,51 @@ def test_person_info(mock_get_person):
     result = runner.invoke(cli, ["person", "info", "nm0000206", "--format", "json"])
     assert result.exit_code == 0
     assert "Keanu" in result.output
+
+
+@patch("gfd_imdb_cli.person.get_person_full")
+def test_person_full(mock_full):
+    person_data = {
+        "id": "nm0000206",
+        "nameText": {"text": "Keanu Reeves"},
+        "birthDate": {"dateComponents": {"year": 1964, "month": 9, "day": 2}},
+        "birthLocation": {"text": "Beirut, Lebanon"},
+        "bio": {"text": {"plainText": "Canadian actor."}},
+        "knownFor": {"edges": []},
+    }
+    credits_data = [
+        {
+            "title": {
+                "id": "tt0133093",
+                "titleText": {"text": "The Matrix"},
+                "releaseYear": {"year": 1999},
+            },
+            "category": {"text": "Actor"},
+        },
+    ]
+
+    async def fake_full(pid):
+        return person_data, credits_data
+
+    mock_full.side_effect = fake_full
+    result = runner.invoke(cli, ["person", "full", "nm0000206", "--format", "json"])
+    assert result.exit_code == 0
+    assert "Keanu" in result.output
+    assert "Matrix" in result.output
+    assert '"info"' in result.output
+    assert '"filmography"' in result.output
+
+
+# --- Hyperlink utility tests ---
+
+
+@patch("gfd_imdb_cli.output.is_tty", return_value=True)
+def test_hyperlink_tty(mock_tty):
+    result = hyperlink("https://example.com", "click me")
+    assert "\033]8;;https://example.com\033\\click me\033]8;;\033\\" == result
+
+
+@patch("gfd_imdb_cli.output.is_tty", return_value=False)
+def test_hyperlink_no_tty(mock_tty):
+    result = hyperlink("https://example.com", "click me")
+    assert result == "click me"

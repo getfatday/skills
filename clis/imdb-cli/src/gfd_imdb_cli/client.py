@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from typing import Any
@@ -246,3 +247,59 @@ def get_upcoming() -> list[dict[str, Any]]:
         for entry in group.get("entries", []):
             entries.append(entry)
     return entries
+
+
+# ---------------------------------------------------------------------------
+# Async GraphQL helpers (for concurrent requests)
+# ---------------------------------------------------------------------------
+
+
+async def _async_graphql(
+    client: httpx.AsyncClient, query: str
+) -> dict[str, Any]:
+    """Execute a GraphQL query using an async client."""
+    resp = await client.post(
+        _GRAPHQL_URL, json={"query": query}, headers=_GRAPHQL_HEADERS
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    if "errors" in data and "data" not in data:
+        msg = data["errors"][0]["message"]
+        raise RuntimeError(f"GraphQL error: {msg}")
+    return data.get("data", {})
+
+
+async def get_person_full(
+    name_id: str, credits_limit: int = 100
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Fetch person details and credits concurrently.
+
+    Returns (person_data, credits_list).
+    """
+    info_query = _name_query(name_id, _PERSON_DETAIL_BODY)
+    credits_body = f"""
+        credits(first: {credits_limit}) {{
+          edges {{
+            node {{
+              title {{ id titleText {{ text }} releaseYear {{ year }} }}
+              category {{ text }}
+            }}
+          }}
+        }}
+    """
+    credits_query = _name_query(name_id, credits_body)
+
+    async with httpx.AsyncClient(
+        headers=_HEADERS, timeout=15.0, follow_redirects=True
+    ) as client:
+        info_data, credits_data = await asyncio.gather(
+            _async_graphql(client, info_query),
+            _async_graphql(client, credits_query),
+        )
+
+    person = info_data.get("name") or {}
+    name = credits_data.get("name") or {}
+    credits = name.get("credits") or {}
+    credit_nodes = [e["node"] for e in credits.get("edges", [])]
+
+    return person, credit_nodes

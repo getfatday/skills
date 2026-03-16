@@ -1,6 +1,6 @@
 [project]
 name = "gfd-imdb-cli"
-version = "0.3.0"
+version = "0.4.0"
 requires-python = ">=3.12"
 description = "IMDB data CLI using IMDB APIs"
 dependencies = [
