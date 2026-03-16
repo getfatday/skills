@@ -41,6 +41,26 @@ output=$(gfd-monarch <command> --format json 2>&1); exit_code=$?
 If exit_code is non-zero, do NOT attempt to parse the output as JSON.
 </error_handling>
 
+<tui>
+## TUI Presentation
+
+The Bash tool's `description` parameter controls what the user sees in the Claude Code TUI. Use clean, human-readable descriptions for every CLI call:
+
+| Command | Description |
+|---------|-------------|
+| `auth status` | Checking Monarch connection |
+| `accounts list` | Loading accounts |
+| `accounts balances` | Loading account balances |
+| `transactions list` | Loading recent transactions |
+| `transactions search` | Searching transactions for {query} |
+| `budgets list` | Loading budget for {month} |
+| `cashflow summary` | Loading cash flow summary |
+| `cashflow monthly` | Loading monthly cash flow trends |
+| `recurring list` | Loading recurring transactions |
+
+Parse JSON output and present formatted results. Never show raw JSON to the user.
+</tui>
+
 <commands>
 ## Available CLI Commands
 

@@ -57,6 +57,27 @@ When a user asks a vague question like "tell me about The Matrix", do this:
 When comparing movies, fetch info for each and present side-by-side.
 </execution>
 
+<tui>
+## TUI Presentation
+
+The Bash tool's `description` parameter controls what the user sees in the Claude Code TUI. Use clean, human-readable descriptions for every CLI call:
+
+| Command | Description |
+|---------|-------------|
+| `search movies <query>` | Searching IMDB for {query} |
+| `search people <name>` | Searching IMDB for {name} |
+| `movie info <id>` | Fetching details for {title or id} |
+| `movie cast <id>` | Loading cast for {title or id} |
+| `movie box-office <id>` | Fetching box office data for {title or id} |
+| `person info <id>` | Looking up {name or id} |
+| `person filmography <id>` | Loading filmography for {name or id} |
+| `top movies` / `top shows` | Loading IMDB Top 250 movies/shows |
+| `top box-office` | Loading current box office |
+| `upcoming` | Loading upcoming releases |
+
+Parse JSON output and present formatted results. Never show raw JSON to the user.
+</tui>
+
 <constraints>
 - Never fabricate movie data. Only report what the CLI returns.
 - IMDB IDs are numeric strings. Don't confuse them with other identifiers.

@@ -38,6 +38,16 @@ plugins/{name}/
         └── templates/
 ```
 
+## TUI Guidelines
+
+When calling CLIs via the Bash tool, the `description` parameter controls what appears in the Claude Code TUI. Make it human-readable.
+
+- Describe the action, not the command. "Searching IMDB for Tom Jacobson" not "Run gfd-imdb search people Tom Jacobson".
+- Use present progressive tense: "Searching...", "Fetching...", "Loading...", "Checking...".
+- Never include file paths, `cd` commands, `--format` flags, or CLI names in the description.
+- The description should read like a loading spinner message.
+- Always use `--format json` when calling CLIs, but parse the JSON and present formatted results to the user. Never dump raw JSON output.
+
 ## Development
 
 ```bash
