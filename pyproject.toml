@@ -1,0 +1,21 @@
+[tool.uv.workspace]
+members = ["clis/*"]
+
+[tool.uv]
+dev-dependencies = [
+    "ruff>=0.15",
+    "pytest>=9.0",
+    "pytest-cov>=7.0",
+    "mypy>=1.0",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["clis", "tests"]
+addopts = "--tb=short -q"
