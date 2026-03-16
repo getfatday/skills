@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import click
-from imdb import IMDbError
 
-from gfd_imdb_cli.client import get_client
+from gfd_imdb_cli.client import get_box_office_chart, get_top_movies, get_top_tv
 from gfd_imdb_cli.output import detect_format, error, render
 
 
@@ -20,20 +19,21 @@ def top() -> None:
 def top_movies(limit: int, fmt: str | None) -> None:
     """IMDB Top 250 movies."""
     fmt = detect_format(fmt)
-    ia = get_client()
     try:
-        results = ia.get_top250_movies()
-    except IMDbError as e:
+        results = get_top_movies(limit)
+    except Exception as e:
         error(f"IMDB request failed: {e}")
 
     rows = []
-    for i, m in enumerate(results[:limit], 1):
+    for edge in results:
+        node = edge["node"]
+        ratings = node.get("ratingsSummary") or {}
         rows.append({
-            "rank": i,
-            "id": f"tt{m.movieID}",
-            "title": m.get("title", ""),
-            "year": m.get("year", ""),
-            "rating": m.get("rating", ""),
+            "rank": edge.get("currentRank", ""),
+            "id": node.get("id", ""),
+            "title": (node.get("titleText") or {}).get("text", ""),
+            "year": (node.get("releaseYear") or {}).get("year", ""),
+            "rating": ratings.get("aggregateRating", ""),
         })
 
     render(rows, fmt, headers=["rank", "id", "title", "year", "rating"])
@@ -45,20 +45,21 @@ def top_movies(limit: int, fmt: str | None) -> None:
 def top_shows(limit: int, fmt: str | None) -> None:
     """IMDB Top 250 TV shows."""
     fmt = detect_format(fmt)
-    ia = get_client()
     try:
-        results = ia.get_top250_tv()
-    except IMDbError as e:
+        results = get_top_tv(limit)
+    except Exception as e:
         error(f"IMDB request failed: {e}")
 
     rows = []
-    for i, m in enumerate(results[:limit], 1):
+    for edge in results:
+        node = edge["node"]
+        ratings = node.get("ratingsSummary") or {}
         rows.append({
-            "rank": i,
-            "id": f"tt{m.movieID}",
-            "title": m.get("title", ""),
-            "year": m.get("year", ""),
-            "rating": m.get("rating", ""),
+            "rank": edge.get("currentRank", ""),
+            "id": node.get("id", ""),
+            "title": (node.get("titleText") or {}).get("text", ""),
+            "year": (node.get("releaseYear") or {}).get("year", ""),
+            "rating": ratings.get("aggregateRating", ""),
         })
 
     render(rows, fmt, headers=["rank", "id", "title", "year", "rating"])
@@ -69,21 +70,29 @@ def top_shows(limit: int, fmt: str | None) -> None:
 def top_box_office(fmt: str | None) -> None:
     """Current box office rankings."""
     fmt = detect_format(fmt)
-    ia = get_client()
     try:
-        results = ia.get_boxoffice()
-    except (IMDbError, AttributeError) as e:
+        results = get_box_office_chart()
+    except Exception as e:
         error(f"IMDB request failed: {e}")
 
     rows = []
-    for i, m in enumerate(results, 1):
+    for i, edge in enumerate(results, 1):
+        node = edge["node"]
+        gross_total = (node.get("gross") or {}).get("total") or {}
+        amount = gross_total.get("amount")
+        weekend = f"${amount:,.0f}" if amount else ""
+
+        release = node.get("release") or {}
+        titles = release.get("titles") or []
+        title_info = titles[0] if titles else {}
+
         rows.append({
             "rank": i,
-            "id": f"tt{m.movieID}",
-            "title": m.get("title", ""),
-            "weekend": m.get("weekend") or "",
-            "gross": m.get("gross") or "",
-            "weeks": m.get("weeks") or "",
+            "id": title_info.get("id", ""),
+            "title": (title_info.get("titleText") or {}).get("text", ""),
+            "weekend": weekend,
+            "gross": "",
+            "weeks": release.get("weeksRunning", ""),
         })
 
     render(rows, fmt, headers=["rank", "id", "title", "weekend", "gross", "weeks"])

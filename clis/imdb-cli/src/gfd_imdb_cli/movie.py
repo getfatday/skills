@@ -3,11 +3,23 @@
 from __future__ import annotations
 
 import click
-from imdb import IMDbError
 
-from gfd_imdb_cli.client import get_client
+from gfd_imdb_cli.client import get_title, get_title_box_office, get_title_cast
 from gfd_imdb_cli.context import normalize_id
 from gfd_imdb_cli.output import detect_format, error, render, render_single
+
+
+def _fmt_money(money: dict | None) -> str:
+    """Format a money dict like {'amount': 63000000, 'currency': 'USD'}."""
+    if not money:
+        return "N/A"
+    amount = money.get("amount")
+    currency = money.get("currency", "")
+    if amount is None:
+        return "N/A"
+    if currency == "USD":
+        return f"${amount:,.0f}"
+    return f"{currency} {amount:,.0f}"
 
 
 @click.group("movie")
@@ -21,37 +33,53 @@ def movie() -> None:
 def movie_info(movie_id: str, fmt: str | None) -> None:
     """Full movie details by IMDB ID."""
     fmt = detect_format(fmt)
-    ia = get_client()
-    mid = normalize_id(movie_id)
+    tid = normalize_id(movie_id)
     try:
-        m = ia.get_movie(mid)
-    except IMDbError as e:
+        m = get_title(tid)
+    except Exception as e:
         error(f"IMDB request failed: {e}")
 
-    if not m or not m.data:
+    if not m:
         error(f"Movie not found: {movie_id}")
 
-    director_list = m.get("directors") or m.get("director") or []
-    directors = ", ".join(p.get("name", "") for p in director_list)
-    writers = ", ".join(p.get("name", "") for p in (m.get("writers") or m.get("writer") or []))
-    cast_list = m.get("cast") or []
-    cast_names = ", ".join(p.get("name", "") for p in cast_list[:10])
-    genres = ", ".join(m.get("genres") or [])
-    runtimes = m.get("runtimes") or []
-    runtime = runtimes[0] if runtimes else ""
+    runtime_secs = (m.get("runtime") or {}).get("seconds")
+    runtime = f"{runtime_secs // 60} min" if runtime_secs else ""
+
+    genres_list = [g["text"] for g in ((m.get("genres") or {}).get("genres") or [])]
+    directors = ", ".join(
+        e["node"]["name"]["nameText"]["text"]
+        for e in ((m.get("directors") or {}).get("edges") or [])
+    )
+    writers = ", ".join(
+        e["node"]["name"]["nameText"]["text"]
+        for e in ((m.get("writers") or {}).get("edges") or [])
+    )
+    cast_names = ", ".join(
+        e["node"]["name"]["nameText"]["text"]
+        for e in ((m.get("cast") or {}).get("edges") or [])
+    )
+
+    plot = ""
+    plot_obj = m.get("plot")
+    if plot_obj:
+        plot_text = plot_obj.get("plotText")
+        if plot_text:
+            plot = plot_text.get("plainText", "")
+
+    ratings = m.get("ratingsSummary") or {}
 
     data = {
-        "id": f"tt{m.movieID}",
-        "title": m.get("title", ""),
-        "year": m.get("year", ""),
-        "rating": m.get("rating", ""),
-        "votes": m.get("votes", ""),
-        "runtime": f"{runtime} min" if runtime else "",
-        "genres": genres,
+        "id": m.get("id", tid),
+        "title": (m.get("titleText") or {}).get("text", ""),
+        "year": (m.get("releaseYear") or {}).get("year", ""),
+        "rating": ratings.get("aggregateRating", ""),
+        "votes": ratings.get("voteCount", ""),
+        "runtime": runtime,
+        "genres": ", ".join(genres_list),
         "directors": directors,
         "writers": writers,
         "cast": cast_names,
-        "plot": (m.get("plot") or [""])[0] if m.get("plot") else "",
+        "plot": plot,
     }
 
     render_single(data, fmt)
@@ -63,29 +91,20 @@ def movie_info(movie_id: str, fmt: str | None) -> None:
 def movie_cast(movie_id: str, fmt: str | None) -> None:
     """Full cast list with roles."""
     fmt = detect_format(fmt)
-    ia = get_client()
-    mid = normalize_id(movie_id)
+    tid = normalize_id(movie_id)
     try:
-        m = ia.get_movie(mid)
-    except IMDbError as e:
+        cast_list = get_title_cast(tid)
+    except Exception as e:
         error(f"IMDB request failed: {e}")
 
-    if not m or not m.data:
-        error(f"Movie not found: {movie_id}")
-
-    cast_list = m.get("cast") or []
     rows = []
-    for p in cast_list:
-        role = p.currentRole
-        if hasattr(role, "get"):
-            role_name = role.get("name", "")
-        elif hasattr(role, "__iter__") and not isinstance(role, str):
-            role_name = ", ".join(r.get("name", "") for r in role if hasattr(r, "get"))
-        else:
-            role_name = str(role) if role else ""
+    for node in cast_list:
+        name_obj = node.get("name") or {}
+        characters = node.get("characters") or []
+        role_name = ", ".join(c.get("name", "") for c in characters)
         rows.append({
-            "id": f"nm{p.personID}",
-            "name": p.get("name", ""),
+            "id": name_obj.get("id", ""),
+            "name": (name_obj.get("nameText") or {}).get("text", ""),
             "role": role_name,
         })
 
@@ -98,28 +117,27 @@ def movie_cast(movie_id: str, fmt: str | None) -> None:
 def movie_box_office(movie_id: str, fmt: str | None) -> None:
     """Box office data for a movie."""
     fmt = detect_format(fmt)
-    ia = get_client()
-    mid = normalize_id(movie_id)
+    tid = normalize_id(movie_id)
     try:
-        m = ia.get_movie(mid)
-        ia.update(m, info=["box office"])
-    except IMDbError as e:
+        m = get_title_box_office(tid)
+    except Exception as e:
         error(f"IMDB request failed: {e}")
 
-    if not m or not m.data:
+    if not m:
         error(f"Movie not found: {movie_id}")
 
-    box = m.get("box office") or {}
-    if not box:
-        error(f"No box office data for {movie_id}")
+    budget = (m.get("productionBudget") or {}).get("budget")
+    opening = ((m.get("openingWeekendGross") or {}).get("gross") or {}).get("total")
+    domestic = (m.get("lifetimeGross") or {}).get("total")
+    worldwide = (m.get("worldwideGross") or {}).get("total")
 
     data = {
-        "id": f"tt{m.movieID}",
-        "title": m.get("title", ""),
-        "budget": box.get("Budget", "N/A"),
-        "opening_weekend": box.get("Opening Weekend United States", "N/A"),
-        "gross_domestic": box.get("Gross United States and Canada", "N/A"),
-        "gross_worldwide": box.get("Cumulative Worldwide Gross", "N/A"),
+        "id": m.get("id", tid),
+        "title": (m.get("titleText") or {}).get("text", ""),
+        "budget": _fmt_money(budget),
+        "opening_weekend": _fmt_money(opening),
+        "gross_domestic": _fmt_money(domestic),
+        "gross_worldwide": _fmt_money(worldwide),
     }
 
     render_single(data, fmt)

@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import click
-from imdb import IMDbError
+import httpx
 
-from gfd_imdb_cli.client import get_client
+from gfd_imdb_cli.client import search_suggestions
 from gfd_imdb_cli.output import detect_format, error, render
 
 
@@ -20,19 +20,20 @@ def search() -> None:
 def search_movies(query: str, fmt: str | None) -> None:
     """Search movies by title."""
     fmt = detect_format(fmt)
-    ia = get_client()
     try:
-        results = ia.search_movie(query)
-    except IMDbError as e:
+        results = search_suggestions(query)
+    except httpx.HTTPError as e:
         error(f"IMDB request failed: {e}")
 
     rows = []
-    for m in results:
+    for item in results:
+        if not item.get("id", "").startswith("tt"):
+            continue
         rows.append({
-            "id": f"tt{m.movieID}",
-            "title": m.get("title", ""),
-            "year": m.get("year", ""),
-            "rating": m.get("rating", ""),
+            "id": item["id"],
+            "title": item.get("l", ""),
+            "year": item.get("y", ""),
+            "rating": "",
         })
 
     render(rows, fmt, headers=["id", "title", "year", "rating"])
@@ -44,21 +45,19 @@ def search_movies(query: str, fmt: str | None) -> None:
 def search_people(query: str, fmt: str | None) -> None:
     """Search people by name."""
     fmt = detect_format(fmt)
-    ia = get_client()
     try:
-        results = ia.search_person(query)
-    except IMDbError as e:
+        results = search_suggestions(query)
+    except httpx.HTTPError as e:
         error(f"IMDB request failed: {e}")
 
     rows = []
-    for p in results:
-        known_for = ", ".join(
-            m.get("title", "") for m in (p.get("known for") or [])[:3]
-        )
+    for item in results:
+        if not item.get("id", "").startswith("nm"):
+            continue
         rows.append({
-            "id": f"nm{p.personID}",
-            "name": p.get("name", ""),
-            "known_for": known_for,
+            "id": item["id"],
+            "name": item.get("l", ""),
+            "known_for": item.get("s", ""),
         })
 
     render(rows, fmt, headers=["id", "name", "known_for"])

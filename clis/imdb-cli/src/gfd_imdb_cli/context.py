@@ -8,5 +8,7 @@ EXIT_NOT_FOUND = 4
 
 
 def normalize_id(movie_id: str) -> str:
-    """Strip optional 'tt' prefix from IMDB IDs."""
-    return movie_id.lstrip("t")
+    """Ensure movie ID has 'tt' prefix for GraphQL lookups."""
+    if movie_id.startswith("tt"):
+        return movie_id
+    return f"tt{movie_id}"

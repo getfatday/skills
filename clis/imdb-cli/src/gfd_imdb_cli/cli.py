@@ -15,7 +15,7 @@ from gfd_imdb_cli.upcoming import upcoming
 @click.group()
 @click.version_option(version=__version__, prog_name="gfd-imdb")
 def cli() -> None:
-    """IMDB data CLI using Cinemagoer."""
+    """IMDB data CLI."""
 
 
 cli.add_command(search)
