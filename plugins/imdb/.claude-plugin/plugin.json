@@ -1,7 +1,7 @@
 {
   "name": "imdb",
   "description": "IMDB movie and TV data — search, details, cast, box office, top lists, and upcoming releases",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": { "name": "getfatday" },
   "keywords": ["imdb", "movies", "tv", "entertainment", "ratings", "box-office"]
 }
