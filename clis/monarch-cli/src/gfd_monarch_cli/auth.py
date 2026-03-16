@@ -7,11 +7,12 @@ import getpass
 
 import click
 import keyring
-from monarchmoney import MonarchMoney, RequireMFAException, LoginFailedException
+from monarchmoney import LoginFailedException, MonarchMoney, RequireMFAException
 
 # Patch the domain: Monarch migrated from monarchmoney.com to monarch.com (Feb 2026)
 # The upstream libraries haven't all caught up yet.
 from monarchmoney.monarchmoney import MonarchMoneyEndpoints
+
 MonarchMoneyEndpoints.BASE_URL = "https://api.monarch.com"
 
 SERVICE_NAME = "gfd-monarch"

@@ -40,7 +40,8 @@ def list_accounts(fmt: str | None, include_hidden: bool) -> None:
             "updated": a.get("displayLastUpdatedAt", ""),
         })
 
-    render(rows, fmt, headers=["id", "name", "type", "subtype", "balance", "institution", "updated"])
+    headers = ["id", "name", "type", "subtype", "balance", "institution", "updated"]
+    render(rows, fmt, headers=headers)
 
 
 @accounts.command("balances")

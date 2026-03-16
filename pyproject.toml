@@ -7,6 +7,8 @@ dev-dependencies = [
     "pytest>=9.0",
     "pytest-cov>=7.0",
     "mypy>=1.0",
+    "towncrier>=24.0",
+    "bump-my-version>=1.0",
 ]
 
 [tool.ruff]

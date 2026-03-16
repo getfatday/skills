@@ -40,7 +40,8 @@ def summary(start_date: str | None, end_date: str | None, fmt: str | None) -> No
         raise SystemExit(2)
 
     result = asyncio.run(mm.get_cashflow_summary(**kwargs))
-    s = result.get("summary", [{}])[0].get("summary", {}) if isinstance(result.get("summary"), list) else result.get("summary", {}).get("summary", {})
+    raw = result.get("summary", {})
+    s = raw[0].get("summary", {}) if isinstance(raw, list) else raw.get("summary", {})
 
     data = {
         "income": f"${s.get('sumIncome', 0):,.2f}",
@@ -72,7 +73,8 @@ def monthly(months: int, fmt: str | None) -> None:
 
         start, end = _month_range(year, month)
         result = asyncio.run(mm.get_cashflow_summary(start_date=start, end_date=end))
-        s = result.get("summary", [{}])[0].get("summary", {}) if isinstance(result.get("summary"), list) else result.get("summary", {}).get("summary", {})
+        raw = result.get("summary", {})
+        s = raw[0].get("summary", {}) if isinstance(raw, list) else raw.get("summary", {})
 
         rows.append({
             "month": f"{year}-{month:02d}",

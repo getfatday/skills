@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from click.testing import CliRunner
-
 from gfd_monarch_cli.cli import cli
 
 
@@ -77,7 +76,7 @@ def test_recurring_group_help():
 
 
 def test_output_module_imports():
-    from gfd_monarch_cli.output import render, render_single, detect_format, error
+    from gfd_monarch_cli.output import detect_format, error, render, render_single
     assert callable(render)
     assert callable(render_single)
     assert callable(detect_format)
@@ -85,8 +84,8 @@ def test_output_module_imports():
 
 
 def test_render_json_empty():
-    from io import StringIO
     from unittest.mock import patch
+
     from gfd_monarch_cli.output import render
 
     with patch("click.echo") as mock_echo:
@@ -97,6 +96,7 @@ def test_render_json_empty():
 def test_render_json_data():
     import json
     from unittest.mock import patch
+
     from gfd_monarch_cli.output import render
 
     data = [{"name": "Test", "value": 42}]

@@ -52,4 +52,5 @@ def list_recurring(start_date: str | None, end_date: str | None, fmt: str | None
             "past": item.get("isPast", False),
         })
 
-    render(rows, fmt, headers=["date", "merchant", "amount", "frequency", "category", "account", "past"])
+    headers = ["date", "merchant", "amount", "frequency", "category", "account", "past"]
+    render(rows, fmt, headers=headers)

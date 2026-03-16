@@ -1,0 +1,18 @@
+[tool.towncrier]
+filename = "CHANGELOG.md"
+directory = "newsfragments"
+
+[[tool.towncrier.type]]
+directory = "feature"
+name = "Features"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "bugfix"
+name = "Bug Fixes"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "misc"
+name = "Miscellaneous"
+showcontent = true
