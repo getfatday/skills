@@ -1,16 +1,24 @@
 # getfatday/skills
 
-Claude Code plugins for personal finance and entertainment data. Install a plugin and use slash commands to query your Monarch Money accounts or search IMDB, all inside Claude Code.
+Plugins for personal finance and entertainment data. Install a plugin and use slash commands to query your Monarch Money accounts or search IMDB. Works with Claude Code, Cursor, and any tool that reads the `claude` CLI.
 
 ## Install
 
-Add the marketplace, then install whichever plugins you want:
+### Claude Code (CLI or VS Code)
 
 ```bash
 claude plugin marketplace add getfatday/skills
 claude plugin install monarch
 claude plugin install imdb
 ```
+
+### Cursor
+
+Cursor auto-discovers skills from `.claude/skills/` directories. After installing a plugin with the `claude` CLI (above), Cursor's Agent picks up the skill knowledge automatically. Slash commands (`/monarch`, `/imdb`) are Claude Code specific, but the domain skills (personal-finance, entertainment) work in Cursor's Agent context.
+
+### Any tool with a terminal
+
+The CLIs work standalone. Install them with uv and call `gfd-monarch` or `gfd-imdb` from any terminal, script, or agent that can run shell commands.
 
 ## Plugins
 
