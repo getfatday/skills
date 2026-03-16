@@ -6,7 +6,7 @@
     {
       "name": "monarch",
       "source": "./plugins/monarch",
-      "description": "Personal finance data access via Monarch Money — accounts, transactions, budgets, cash flow",
+      "description": "Personal finance data from Monarch Money. Check account balances, search transactions, view budget vs actuals, and track cash flow trends. Commands: /monarch, /monarch:transactions, /monarch:budget, /monarch:cashflow, /monarch:status",
       "author": { "name": "getfatday" },
       "category": "personal-finance",
       "keywords": ["finance", "monarch", "budgets", "transactions"]
@@ -14,7 +14,7 @@
     {
       "name": "imdb",
       "source": "./plugins/imdb",
-      "description": "IMDB movie and TV data — search, details, cast, box office, top lists, and upcoming releases",
+      "description": "IMDB movie and TV data. Search films, look up cast and box office, browse Top 250 movies/shows, and check upcoming releases. Commands: /imdb, /imdb:movie, /imdb:person, /imdb:top",
       "author": { "name": "getfatday" },
       "category": "entertainment",
       "keywords": ["imdb", "movies", "tv", "ratings", "box-office"]
