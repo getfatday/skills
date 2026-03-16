@@ -1,0 +1,7 @@
+{
+  "name": "monarch",
+  "description": "Personal finance data access via Monarch Money — accounts, transactions, budgets, cash flow",
+  "version": "0.1.0",
+  "author": { "name": "getfatday" },
+  "keywords": ["finance", "monarch", "budgets", "transactions", "personal-finance"]
+}

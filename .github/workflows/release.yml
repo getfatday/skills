@@ -12,6 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       monarch-cli: ${{ steps.check.outputs.monarch-cli }}
+      imdb-cli: ${{ steps.check.outputs.imdb-cli }}
     steps:
       - uses: actions/checkout@v4
       - id: check
@@ -21,6 +22,11 @@ jobs:
             echo "monarch-cli=true" >> "$GITHUB_OUTPUT"
           else
             echo "monarch-cli=false" >> "$GITHUB_OUTPUT"
+          fi
+          if find clis/imdb-cli/newsfragments -type f ! -name '.gitkeep' 2>/dev/null | grep -q .; then
+            echo "imdb-cli=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "imdb-cli=false" >> "$GITHUB_OUTPUT"
           fi
 
   release-monarch-cli:
@@ -63,5 +69,48 @@ jobs:
             --notes-file clis/monarch-cli/CHANGELOG.md \
             dist/gfd_monarch_cli-${VERSION}-py3-none-any.whl \
             dist/gfd_monarch_cli-${VERSION}.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  release-imdb-cli:
+    needs: detect-release
+    if: needs.detect-release.outputs.imdb-cli == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: astral-sh/setup-uv@v6
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Run release script
+        run: bash scripts/release-cli.sh clis/imdb-cli
+
+      - name: Push release commit and tag
+        run: |
+          git push origin main
+          git push origin --tags
+
+      - name: Create GitHub Release
+        run: |
+          VERSION=$(cd clis/imdb-cli && uv run bump-my-version show current_version)
+          gh release create "imdb-cli-v${VERSION}" \
+            --title "imdb-cli v${VERSION}" \
+            --notes-file clis/imdb-cli/CHANGELOG.md \
+            dist/gfd_imdb_cli-${VERSION}-py3-none-any.whl \
+            dist/gfd_imdb_cli-${VERSION}.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

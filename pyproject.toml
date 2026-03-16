@@ -20,4 +20,4 @@ select = ["E", "F", "I", "UP"]
 
 [tool.pytest.ini_options]
 testpaths = ["clis", "tests"]
-addopts = "--tb=short -q"
+addopts = "--tb=short -q --import-mode=importlib"

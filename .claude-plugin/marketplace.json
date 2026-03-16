@@ -1,3 +1,23 @@
 {
-  "plugins": []
+  "name": "getfatday-skills",
+  "owner": { "name": "getfatday" },
+  "metadata": { "description": "Personal Claude Code plugins and supporting CLIs" },
+  "plugins": [
+    {
+      "name": "monarch",
+      "source": "./plugins/monarch",
+      "description": "Personal finance data access via Monarch Money — accounts, transactions, budgets, cash flow",
+      "author": { "name": "getfatday" },
+      "category": "personal-finance",
+      "keywords": ["finance", "monarch", "budgets", "transactions"]
+    },
+    {
+      "name": "imdb",
+      "source": "./plugins/imdb",
+      "description": "IMDB movie and TV data — search, details, cast, box office, top lists, and upcoming releases",
+      "author": { "name": "getfatday" },
+      "category": "entertainment",
+      "keywords": ["imdb", "movies", "tv", "ratings", "box-office"]
+    }
+  ]
 }

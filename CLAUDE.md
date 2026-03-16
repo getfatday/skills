@@ -63,3 +63,17 @@ Each CLI maintains its own `CHANGELOG.md` via towncrier. PRs that change a CLI m
 ### monarch-cli
 Personal finance CLI wrapping the Monarch Money API.
 Command: `gfd-monarch`
+
+### imdb-cli
+IMDB movie and TV data CLI using Cinemagoer.
+Command: `gfd-imdb`
+
+## Plugins
+
+### monarch
+Personal finance data access. Wraps `gfd-monarch` CLI.
+Commands: `/monarch`, `/monarch:transactions`, `/monarch:budget`, `/monarch:cashflow`, `/monarch:status`
+
+### imdb
+IMDB movie and TV data. Wraps `gfd-imdb` CLI.
+Commands: `/imdb`, `/imdb:movie`, `/imdb:person`, `/imdb:top`

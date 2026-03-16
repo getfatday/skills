@@ -13,6 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       monarch-cli: ${{ steps.filter.outputs.monarch-cli }}
+      imdb-cli: ${{ steps.filter.outputs.imdb-cli }}
     steps:
       - uses: actions/checkout@v4
 
@@ -23,6 +24,9 @@ jobs:
           filters: |
             monarch-cli:
               - 'clis/monarch-cli/**'
+              - 'pyproject.toml'
+            imdb-cli:
+              - 'clis/imdb-cli/**'
               - 'pyproject.toml'
 
   lint:
@@ -92,6 +96,77 @@ jobs:
           FRAGMENTS=$(git diff --name-only --diff-filter=A origin/${{ github.base_ref }}...HEAD -- 'clis/monarch-cli/newsfragments/*' | grep -v '.gitkeep' || true)
           if [ -z "$FRAGMENTS" ]; then
             echo "::error::No new towncrier news fragment found. Add a file to clis/monarch-cli/newsfragments/ (e.g., 1.feature, 2.bugfix)"
+            exit 1
+          fi
+          echo "Found news fragments: $FRAGMENTS"
+
+  lint-imdb-cli:
+    needs: changes
+    if: needs.changes.outputs.imdb-cli == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Lint
+        run: uv run ruff check clis/imdb-cli/
+
+  test-imdb-cli:
+    needs: changes
+    if: needs.changes.outputs.imdb-cli == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Test
+        run: uv run pytest clis/imdb-cli/ -q --tb=short
+
+  towncrier-check-imdb-cli:
+    needs: changes
+    if: needs.changes.outputs.imdb-cli == 'true' && github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Check towncrier news fragment
+        run: |
+          FRAGMENTS=$(git diff --name-only --diff-filter=A origin/${{ github.base_ref }}...HEAD -- 'clis/imdb-cli/newsfragments/*' | grep -v '.gitkeep' || true)
+          if [ -z "$FRAGMENTS" ]; then
+            echo "::error::No new towncrier news fragment found. Add a file to clis/imdb-cli/newsfragments/ (e.g., 1.feature, 2.bugfix)"
             exit 1
           fi
           echo "Found news fragments: $FRAGMENTS"
