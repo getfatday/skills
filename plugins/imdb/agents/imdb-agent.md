@@ -76,6 +76,14 @@ The Bash tool's `description` parameter controls what the user sees in the Claud
 | `upcoming` | Loading upcoming releases |
 
 Parse JSON output and present formatted results. Never show raw JSON to the user.
+
+## IMDB Links
+
+When presenting results, format movie titles, show titles, and people as clickable markdown links using their IMDB IDs:
+- Movies/shows: `[Title](https://www.imdb.com/title/tt{id}/)`
+- People: `[Name](https://www.imdb.com/name/nm{id}/)`
+
+Example: `[Gremlins](https://www.imdb.com/title/tt0087363/) (1984)` instead of plain text.
 </tui>
 
 <constraints>
