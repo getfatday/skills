@@ -15,3 +15,4 @@ venv/
 *.pickle
 *.log
 .DS_Store
+.avatar-workspace/
