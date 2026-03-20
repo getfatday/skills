@@ -1,6 +1,8 @@
 ---
 name: assemble
-description: "Form a multi-avatar team matched to your problem. Discovers avatars, proposes a team, and orchestrates a coordinated discussion."
+description: "Internal: form a multi-avatar team. Used by team:consult, team:review, team:plan, team:coach commands."
+user-invocable: false
+disable-model-invocation: true
 allowed-tools:
   - Read
   - Glob
