@@ -1,50 +1,22 @@
 {
   "version": "1.0.0",
   "avatars": [
-    {
-      "name": "avatar-kent-beck",
-      "expert": "Kent Beck",
-      "domains": ["engineering", "tdd", "software-design", "extreme-programming", "empirical-design"],
-      "path": "plugins/avatar-kent-beck"
-    },
-    {
-      "name": "avatar-robert-martin",
-      "expert": "Robert C. Martin",
-      "domains": ["engineering", "tdd", "software-design", "clean-code", "solid", "software-architecture"],
-      "path": "plugins/avatar-robert-martin"
-    },
-    {
-      "name": "avatar-eric-evans",
-      "expert": "Eric Evans",
-      "domains": ["domain-driven-design", "software-design", "strategic-design", "domain-modeling"],
-      "path": "plugins/avatar-eric-evans"
-    },
-    {
-      "name": "avatar-gene-kim",
-      "expert": "Gene Kim",
-      "domains": ["devops", "flow", "continuous-delivery", "developer-experience", "organizational-change"],
-      "path": "plugins/avatar-gene-kim"
-    },
-    {
-      "name": "avatar-boris-cherny",
-      "expert": "Boris Cherny",
-      "domains": ["ai-native-development", "context-engineering", "claude-code", "developer-tooling"],
-      "path": "plugins/avatar-boris-cherny"
-    },
-    {
-      "name": "avatar-peter-steinberger",
-      "expert": "Peter Steinberger",
-      "domains": ["ai-agent-architecture", "cli-design", "mcp", "autonomous-agents", "ai-native-development"],
-      "path": "plugins/avatar-peter-steinberger"
-    }
+    { "name": "avatar-kent-beck", "expert": "Kent Beck", "domains": ["engineering", "tdd", "software-design", "extreme-programming", "empirical-design"] },
+    { "name": "avatar-robert-martin", "expert": "Robert C. Martin", "domains": ["engineering", "tdd", "software-design", "clean-code", "solid", "software-architecture"] },
+    { "name": "avatar-eric-evans", "expert": "Eric Evans", "domains": ["domain-driven-design", "software-design", "strategic-design", "domain-modeling"] },
+    { "name": "avatar-gene-kim", "expert": "Gene Kim", "domains": ["devops", "flow", "continuous-delivery", "developer-experience", "organizational-change"] },
+    { "name": "avatar-boris-cherny", "expert": "Boris Cherny", "domains": ["ai-native-development", "context-engineering", "claude-code", "developer-tooling"] },
+    { "name": "avatar-peter-steinberger", "expert": "Peter Steinberger", "domains": ["ai-agent-architecture", "cli-design", "mcp", "autonomous-agents", "ai-native-development"] },
+    { "name": "avatar-eliyahu-goldratt", "expert": "Eliyahu Goldratt", "domains": ["operations", "constraints", "throughput", "project-management", "systems-thinking"] },
+    { "name": "avatar-nir-eyal", "expert": "Nir Eyal", "domains": ["growth", "behavioral-design", "habit-formation", "engagement"] },
+    { "name": "avatar-will-larson", "expert": "Will Larson", "domains": ["platform-leadership", "org-design", "team-formation", "engineering-strategy"] },
+    { "name": "avatar-andy-grove", "expert": "Andy Grove", "domains": ["management", "leadership", "production-management", "strategic-planning"] },
+    { "name": "avatar-marty-cagan", "expert": "Marty Cagan", "domains": ["product", "product-strategy", "team-empowerment", "product-leadership"] },
+    { "name": "avatar-teresa-torres", "expert": "Teresa Torres", "domains": ["product", "product-discovery", "customer-research", "assumption-testing"] },
+    { "name": "avatar-eric-ries", "expert": "Eric Ries", "domains": ["product", "lean-startup", "experimentation", "innovation-accounting"] }
   ],
   "teams": [
-    {
-      "name": "team-engineering",
-      "domain": "engineering",
-      "domains": ["engineering", "tdd", "software-design"],
-      "members": ["avatar-kent-beck", "avatar-robert-martin", "avatar-eric-evans"],
-      "path": "plugins/team-engineering"
-    }
+    { "name": "team-engineering", "domains": ["engineering", "tdd", "software-design"], "members": ["avatar-kent-beck", "avatar-robert-martin", "avatar-eric-evans"] },
+    { "name": "team-product", "domains": ["product"], "members": ["avatar-marty-cagan", "avatar-teresa-torres", "avatar-eric-ries"] }
   ]
 }
