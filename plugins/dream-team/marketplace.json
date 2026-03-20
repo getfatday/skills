@@ -13,10 +13,14 @@
     { "name": "avatar-andy-grove", "expert": "Andy Grove", "domains": ["management", "leadership", "production-management", "strategic-planning"] },
     { "name": "avatar-marty-cagan", "expert": "Marty Cagan", "domains": ["product", "product-strategy", "team-empowerment", "product-leadership"] },
     { "name": "avatar-teresa-torres", "expert": "Teresa Torres", "domains": ["product", "product-discovery", "customer-research", "assumption-testing"] },
-    { "name": "avatar-eric-ries", "expert": "Eric Ries", "domains": ["product", "lean-startup", "experimentation", "innovation-accounting"] }
+    { "name": "avatar-eric-ries", "expert": "Eric Ries", "domains": ["product", "lean-startup", "experimentation", "innovation-accounting"] },
+    { "name": "avatar-martin-fowler", "expert": "Martin Fowler", "domains": ["engineering", "software-design", "software-architecture", "refactoring", "microservices"] },
+    { "name": "avatar-lisa-crispin", "expert": "Lisa Crispin", "domains": ["testing", "qa-strategy", "test-automation", "engineering"] },
+    { "name": "avatar-don-norman", "expert": "Don Norman", "domains": ["ux-design", "human-centered-design", "usability", "interaction-design"] },
+    { "name": "avatar-daniele-procida", "expert": "Daniele Procida", "domains": ["technical-writing", "documentation", "developer-experience"] }
   ],
   "teams": [
-    { "name": "team-engineering", "domains": ["engineering", "tdd", "software-design"], "members": ["avatar-kent-beck", "avatar-robert-martin", "avatar-eric-evans"] },
+    { "name": "team-engineering", "domains": ["engineering", "tdd", "software-design"], "members": ["avatar-kent-beck", "avatar-robert-martin", "avatar-eric-evans", "avatar-martin-fowler", "avatar-lisa-crispin"] },
     { "name": "team-product", "domains": ["product"], "members": ["avatar-marty-cagan", "avatar-teresa-torres", "avatar-eric-ries"] }
   ]
 }
