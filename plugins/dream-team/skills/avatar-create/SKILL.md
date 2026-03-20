@@ -114,7 +114,7 @@ Ask: "Does this capture the expert accurately? Anything to add or correct?"
 
 ---
 
-## Stage 3: BUILD — Generate the Avatar Plugin + Domain Team
+## Stage 3: BUILD — Generate the Avatar Plugin
 
 ### Step 3a: Configuration
 
@@ -123,30 +123,23 @@ Use AskUserQuestion to ask the user for:
 - **Confirm mapping**: "Does {expert-name} → {domain} look right?"
 - **Additional domains[]**: Any secondary domain tags
 
-### Step 3b: Check for Existing Domain Team
+### Step 3b: Check for Domain Intersections
 
-Search for `plugins/team-{domain}/TEAM.md`:
-- **If NOT found**: this is the first avatar in this domain. Go to Step 3c.
-- **If found**: this is a subsequent avatar. Go to Step 3d.
+For each domain in the new avatar's `domains[]`, check if any existing avatar (in `plugins/avatar-*/AVATAR.md`) already claims that domain.
 
-### Step 3c: First Avatar in Domain — Create Both Plugins
+- **No intersections**: this avatar is the sole expert in all its domains. Go to Step 3c.
+- **Intersections found**: another avatar shares one or more domains. Go to Step 3d.
 
-This expert is the first in their domain. Create both the avatar plugin AND the domain team plugin.
+### Step 3c: No Intersection — Avatar Only
 
-**Classify the analysis content into two buckets:**
-
-1. **Shared domain knowledge** — concepts any expert in this domain would agree with. Core vocabulary, foundational processes, widely-accepted principles. These go in `team-{domain}`.
-
-2. **Expert-specific knowledge** — this expert's unique voice, distinctive opinions, models they invented, anti-patterns only they emphasize, their specific framing. These stay in `avatar-{expert-slug}`.
-
-**When in doubt, keep it in the avatar.** It's easier to move things to shared later than to pull them back.
+The avatar owns all its concepts. No domain team needed.
 
 **Generate avatar plugin** at `plugins/avatar-{expert-slug}/`:
 
 ```
 plugins/avatar-{expert-slug}/
-  AVATAR.md              # Identity, domains[], UNIQUE principles, voice, distinctive anti-patterns
-  CLAUDE.md              # Voice rules, vocabulary enforcement (expert-specific terms only)
+  AVATAR.md              # Identity, domains[], all principles, voice, anti-patterns
+  CLAUDE.md              # Voice rules, vocabulary enforcement
   plugin.json            # commandPrefix: {expert-slug}
   agents/
     orchestrator.md      # Intent routing
@@ -158,24 +151,46 @@ plugins/avatar-{expert-slug}/
     plan.md              # /{expert-slug}:plan
   skills/
     {expert-slug}/
-      SKILL.md           # Expert-only expertise (unique models, distinctive cycle)
+      SKILL.md           # All expertise (self-contained)
       references/
-        principles.md    # Expert-specific principles < 3K tokens
-        anti-patterns.md # Expert-specific warnings < 3K tokens
-        vocabulary.md    # Expert-specific terms < 3K tokens
+        principles.md    # All principles < 3K tokens
+        anti-patterns.md # All warnings < 3K tokens
+        vocabulary.md    # All terms < 3K tokens
 ```
 
-**Generate domain team plugin** at `plugins/team-{domain}/`:
+The avatar is fully self-contained. Everything lives in the avatar plugin.
+
+### Step 3d: Intersection Found — Create Domain Team + Reconcile
+
+Two or more avatars share a domain. A domain team is needed to hold shared concepts.
+
+**For each intersecting domain** (not all domains, only the ones that overlap):
+
+1. **Check if `plugins/team-{domain}/` exists:**
+   - If NOT: create it now (first intersection triggers team creation)
+   - If YES: update it (add new member, reconcile new concepts)
+
+2. **Read both avatars' content** for the intersecting domain
+
+3. **Classify concepts into shared vs unique:**
+   - **Shared**: concepts BOTH avatars agree on (same vocabulary term, same principle). Move to `team-{domain}`.
+   - **Unique**: concepts only ONE avatar holds, or where they disagree. Stay in the avatar.
+
+4. **Uniqueness constraint**: a vocabulary term, principle, or anti-pattern can exist in at most ONE team plugin. If "refactor" fits both `team-engineering` and `team-tdd`, pick the most specific domain. Present ambiguous cases to the user via AskUserQuestion.
+
+5. **Update existing avatar plugins**: remove concepts that moved to the team. Add an `<extends>` reference to the team skill.
+
+6. **Generate/update team plugin:**
 
 ```
 plugins/team-{domain}/
   TEAM.md                # Domain identity, members[], shared domains
   skills/
     {domain}/
-      SKILL.md           # Shared domain skill (foundational concepts)
+      SKILL.md           # Shared concepts for the domain
       references/
-        vocabulary.md    # Canonical term definitions for the domain
-        principles.md    # Principles all domain members agree on
+        vocabulary.md    # Canonical definitions (owned by this team only)
+        principles.md    # Principles all members agree on
 ```
 
 **TEAM.md schema:**
@@ -186,33 +201,14 @@ description: "Shared {domain} knowledge across avatar members"
 domains:
   - "{domain}"
 members:
-  - "avatar-{expert-slug}"
+  - "avatar-{first-member}"
+  - "avatar-{second-member}"
 ---
-
-# {Domain Name} Team
-
-Shared knowledge for the {domain} domain. This plugin contains concepts,
-vocabulary, and principles that all member avatars agree on.
-
-## Members
-- [{Expert Name}](../avatar-{expert-slug}/AVATAR.md)
 ```
 
-### Step 3d: Subsequent Avatar in Domain — Reconcile
+7. **Present reconciliation to user** via AskUserQuestion before applying changes. Show what moves where.
 
-A domain team already exists. Read its current content.
-
-1. **Create the new avatar plugin** (same structure as 3c, expert-specific content only)
-2. **Read the existing team plugin** (`plugins/team-{domain}/`)
-3. **Read existing member avatars** to understand current shared/unique split
-4. **Reconcile:**
-   - Concepts the NEW expert shares with existing team content → already in team, no action
-   - Concepts the NEW expert brings that are universally agreed → move to team plugin
-   - Concepts that are expert-specific → stay in the new avatar
-   - Concepts in existing avatars that the new expert ALSO has → move from avatar to team
-5. **Update existing avatar plugins** to remove concepts that moved to shared
-6. **Update TEAM.md** to add new member
-7. **Present reconciliation to user** via AskUserQuestion before applying changes
+**Key rule: teams are only created on intersection, never for a solo avatar.** The first avatar in a domain is self-contained. Teams emerge when a second avatar proves shared concepts exist.
 
 ### Step 3e: Content Rules
 
@@ -222,6 +218,7 @@ A domain team already exists. Read its current content.
 - **plugin.json** `commandPrefix` = the expert slug (NOT the domain)
 - All content must trace back to the analysis. Never invent content.
 - All internal references use person-namespaced paths: `skills/{expert-slug}/`
+- A concept (vocabulary term, principle, anti-pattern) can exist in at most ONE location across all plugins
 
 ### Step 3f: Update Marketplace
 
@@ -236,13 +233,13 @@ Update `plugins/dream-team/marketplace.json` — add to the `avatars` array:
 }
 ```
 
-If a new domain team was created, also add to a `teams` array:
+If domain teams were created or updated, add/update the `teams` array:
 
 ```json
 {
   "name": "team-{domain}",
   "domain": "{domain}",
-  "members": ["avatar-{expert-slug}"],
+  "members": ["avatar-{first}", "avatar-{second}"],
   "path": "plugins/team-{domain}"
 }
 ```
@@ -250,16 +247,16 @@ If a new domain team was created, also add to a `teams` array:
 ### Step 3g: Final Checkpoint
 
 Use AskUserQuestion to present:
-- List of all generated files (avatar plugin + domain team if created)
-- AVATAR.md preview (unique principles + voice)
-- TEAM.md preview if created (shared concepts)
-- Reconciliation summary if domain team already existed
+- List of all generated files
+- AVATAR.md preview (principles + voice)
+- If teams created: reconciliation summary (what moved where)
 
 Ask: "Does this look correct? Ready to finalize?"
 
 ### Completion Gate
 
 - Avatar plugin generated with person-namespaced structure
-- Domain team plugin created (first) or reconciled (subsequent)
+- Domain teams created only if intersections exist, reconciled if they do
+- No concept duplicated across plugins
 - marketplace.json updated
 - User confirmed

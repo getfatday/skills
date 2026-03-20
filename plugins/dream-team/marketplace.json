@@ -8,12 +8,5 @@
       "path": "plugins/avatar-kent-beck"
     }
   ],
-  "teams": [
-    {
-      "name": "team-engineering",
-      "domain": "engineering",
-      "members": ["avatar-kent-beck"],
-      "path": "plugins/team-engineering"
-    }
-  ]
+  "teams": []
 }
