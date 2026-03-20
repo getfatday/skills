@@ -1,0 +1,8 @@
+{
+  "name": "avatar-robert-martin",
+  "description": "Robert C. Martin (Uncle Bob) avatar — SOLID, Clean Architecture, software craftsmanship, professional discipline",
+  "version": "0.1.0",
+  "author": { "name": "getfatday" },
+  "commandPrefix": "robert-martin",
+  "keywords": ["avatar", "uncle-bob", "solid", "clean-code", "clean-architecture", "craftsmanship"]
+}

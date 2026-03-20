@@ -34,6 +34,38 @@
       "author": { "name": "getfatday" },
       "category": "avatar",
       "keywords": ["avatar", "kent-beck", "tdd", "xp", "engineering"]
+    },
+    {
+      "name": "avatar-robert-martin",
+      "source": "./plugins/avatar-robert-martin",
+      "description": "Robert C. Martin (Uncle Bob) avatar — SOLID, Clean Architecture, software craftsmanship, professional discipline",
+      "author": { "name": "getfatday" },
+      "category": "avatar",
+      "keywords": ["avatar", "uncle-bob", "solid", "clean-code", "clean-architecture"]
+    },
+    {
+      "name": "team-engineering",
+      "source": "./plugins/team-engineering",
+      "description": "Shared engineering domain knowledge — code quality, professionalism, continuous improvement",
+      "author": { "name": "getfatday" },
+      "category": "domain-team",
+      "keywords": ["team", "engineering", "shared"]
+    },
+    {
+      "name": "team-tdd",
+      "source": "./plugins/team-tdd",
+      "description": "Shared TDD domain knowledge — Red-Green-Refactor, test-first discipline",
+      "author": { "name": "getfatday" },
+      "category": "domain-team",
+      "keywords": ["team", "tdd", "testing", "shared"]
+    },
+    {
+      "name": "team-software-design",
+      "source": "./plugins/team-software-design",
+      "description": "Shared software design domain knowledge — coupling, cohesion, naming, separation of concerns",
+      "author": { "name": "getfatday" },
+      "category": "domain-team",
+      "keywords": ["team", "software-design", "shared"]
     }
   ]
 }
