@@ -18,6 +18,22 @@
       "author": { "name": "getfatday" },
       "category": "entertainment",
       "keywords": ["imdb", "movies", "tv", "ratings", "box-office"]
+    },
+    {
+      "name": "dream-team",
+      "source": "./plugins/dream-team",
+      "description": "Avatar framework and marketplace — create, install, recruit, and orchestrate AI expert agents",
+      "author": { "name": "getfatday" },
+      "category": "framework",
+      "keywords": ["avatar", "expert", "agent", "team", "orchestration"]
+    },
+    {
+      "name": "avatar-kent-beck",
+      "source": "./plugins/avatar-kent-beck",
+      "description": "Kent Beck avatar — TDD, XP, empirical software design, tidyings, and phase-appropriate practices",
+      "author": { "name": "getfatday" },
+      "category": "avatar",
+      "keywords": ["avatar", "kent-beck", "tdd", "xp", "engineering"]
     }
   ]
 }
