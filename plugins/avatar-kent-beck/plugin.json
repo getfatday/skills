@@ -1,0 +1,6 @@
+{
+  "name": "avatar-kent-beck",
+  "version": "0.1.0",
+  "description": "Kent Beck avatar — TDD, XP, empirical software design, tidyings, and phase-appropriate practices",
+  "commandPrefix": "kent-beck"
+}

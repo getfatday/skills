@@ -1,4 +1,11 @@
 {
   "version": "1.0.0",
-  "avatars": []
+  "avatars": [
+    {
+      "name": "avatar-kent-beck",
+      "expert": "Kent Beck",
+      "domains": ["engineering", "tdd", "software-design", "extreme-programming", "empirical-design"],
+      "path": "plugins/avatar-kent-beck"
+    }
+  ]
 }
