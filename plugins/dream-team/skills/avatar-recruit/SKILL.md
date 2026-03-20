@@ -88,18 +88,26 @@ Example:
 - "Simon Sinek (22/30)" — Start With Why, Infinite Game. New domain: leadership.
 ```
 
-## Step 6: Hand Off to avatar-create
+## Step 6: Create Avatars
 
-For each selected candidate, report:
-- Expert name
-- Recommended primary domain
-- Recommended secondary domains
-- Key sources to start with
-- Intersection notes
+For each selected candidate, determine the optimal creation order:
+1. Candidates with the most domain intersections with existing avatars go FIRST (triggers reconciliation early, so later candidates build on a reconciled state)
+2. Candidates with partial intersection go NEXT
+3. Candidates with no intersection go LAST (clean solo avatar, no dependencies)
 
-Then suggest: "Run `/avatar-create {name}` to build the avatar."
+Present the creation order to the user with a brief explanation of why.
 
-If multiple candidates were selected, suggest running them in sequence (each one may trigger reconciliation that affects the next).
+Then **invoke the avatar-create skill for each candidate in sequence**. Use the Skill tool:
+
+```
+Skill("avatar-create", args: "{Expert Name}")
+```
+
+Between each creation, note:
+- What domain teams were created or reconciled
+- How the next candidate's intersection picture changed
+
+Do NOT ask the user to run `/avatar-create` manually. Run it yourself, in order, as part of this skill's execution.
 
 ---
 
@@ -107,4 +115,5 @@ If multiple candidates were selected, suggest running them in sequence (each one
 
 - At least 5 candidates researched and scored
 - User selected one or more
-- Handoff instructions provided
+- All selected candidates created via avatar-create (or user chose to stop)
+- Creation order respected intersection dependencies
