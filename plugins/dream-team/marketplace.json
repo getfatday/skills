@@ -12,6 +12,18 @@
       "expert": "Robert C. Martin",
       "domains": ["engineering", "tdd", "software-design", "clean-code", "solid", "software-architecture"],
       "path": "plugins/avatar-robert-martin"
+    },
+    {
+      "name": "avatar-eric-evans",
+      "expert": "Eric Evans",
+      "domains": ["domain-driven-design", "software-design", "strategic-design", "domain-modeling"],
+      "path": "plugins/avatar-eric-evans"
+    },
+    {
+      "name": "avatar-gene-kim",
+      "expert": "Gene Kim",
+      "domains": ["devops", "flow", "continuous-delivery", "developer-experience", "organizational-change"],
+      "path": "plugins/avatar-gene-kim"
     }
   ],
   "teams": [
@@ -30,7 +42,7 @@
     {
       "name": "team-software-design",
       "domain": "software-design",
-      "members": ["avatar-kent-beck", "avatar-robert-martin"],
+      "members": ["avatar-kent-beck", "avatar-robert-martin", "avatar-eric-evans"],
       "path": "plugins/team-software-design"
     }
   ]

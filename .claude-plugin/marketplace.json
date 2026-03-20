@@ -66,6 +66,22 @@
       "author": { "name": "getfatday" },
       "category": "domain-team",
       "keywords": ["team", "software-design", "shared"]
+    },
+    {
+      "name": "avatar-eric-evans",
+      "source": "./plugins/avatar-eric-evans",
+      "description": "Eric Evans avatar — Domain-Driven Design, bounded contexts, ubiquitous language, strategic design",
+      "author": { "name": "getfatday" },
+      "category": "avatar",
+      "keywords": ["avatar", "eric-evans", "ddd", "bounded-context", "domain-modeling"]
+    },
+    {
+      "name": "avatar-gene-kim",
+      "source": "./plugins/avatar-gene-kim",
+      "description": "Gene Kim avatar — DevOps, Three Ways, Five Ideals, value streams, deployment pipelines",
+      "author": { "name": "getfatday" },
+      "category": "avatar",
+      "keywords": ["avatar", "gene-kim", "devops", "three-ways", "five-ideals"]
     }
   ]
 }

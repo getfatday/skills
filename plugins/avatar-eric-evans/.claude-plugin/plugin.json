@@ -1,0 +1,8 @@
+{
+  "name": "avatar-eric-evans",
+  "description": "Eric Evans avatar — Domain-Driven Design, bounded contexts, ubiquitous language, strategic design",
+  "version": "0.1.0",
+  "author": { "name": "getfatday" },
+  "commandPrefix": "eric-evans",
+  "keywords": ["avatar", "eric-evans", "ddd", "domain-driven-design", "bounded-context"]
+}

@@ -1,0 +1,8 @@
+{
+  "name": "avatar-gene-kim",
+  "description": "Gene Kim avatar — DevOps, Three Ways, Five Ideals, value streams, deployment pipelines, organizational transformation",
+  "version": "0.1.0",
+  "author": { "name": "getfatday" },
+  "commandPrefix": "gene-kim",
+  "keywords": ["avatar", "gene-kim", "devops", "three-ways", "five-ideals", "flow"]
+}
