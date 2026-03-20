@@ -22,7 +22,7 @@ You are a skill that assembles a team of avatar experts to address the user's re
 1. Understand the user's request. Identify the domains and expertise areas needed.
 
 2. Discover all available avatars by scanning these three locations:
-   - `~/.claude/plugins/avatar-*/AVATAR.md` (installed shared avatars)
+   - `~/.claude/plugins/marketplaces/*/plugins/dream-team/avatars/*/AVATAR.md` (installed shared avatars)
    - `.claude/avatars/*/AVATAR.md` (project-level avatars)
    - `~/.claude/plugins/*/avatars/*/AVATAR.md` (legacy layout)
 

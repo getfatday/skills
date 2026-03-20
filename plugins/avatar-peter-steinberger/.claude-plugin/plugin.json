@@ -1,8 +1,0 @@
-{
-  "name": "avatar-peter-steinberger",
-  "description": "Peter Steinberger avatar — AI agent architecture, CLI army, autonomous agents, OpenClaw, practical MCP patterns",
-  "version": "0.1.0",
-  "author": { "name": "getfatday" },
-  "commandPrefix": "peter-steinberger",
-  "keywords": ["avatar", "steipete", "openclaw", "cli", "mcp", "autonomous-agents"]
-}

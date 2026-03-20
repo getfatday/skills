@@ -22,66 +22,10 @@
     {
       "name": "dream-team",
       "source": "./plugins/dream-team",
-      "description": "Avatar framework and marketplace — create, install, recruit, and orchestrate AI expert agents",
+      "description": "Avatar framework and marketplace — create, recruit, consult, review, plan, and coach with AI expert agents. Ships with 6 curated avatars (Beck, Martin, Evans, Kim, Cherny, Steinberger) and 1 domain team.",
       "author": { "name": "getfatday" },
       "category": "framework",
-      "keywords": ["avatar", "expert", "agent", "team", "orchestration"]
-    },
-    {
-      "name": "avatar-kent-beck",
-      "source": "./plugins/avatar-kent-beck",
-      "description": "Kent Beck avatar — TDD, XP, empirical software design, tidyings, and phase-appropriate practices",
-      "author": { "name": "getfatday" },
-      "category": "avatar",
-      "keywords": ["avatar", "kent-beck", "tdd", "xp", "engineering"]
-    },
-    {
-      "name": "avatar-robert-martin",
-      "source": "./plugins/avatar-robert-martin",
-      "description": "Robert C. Martin (Uncle Bob) avatar — SOLID, Clean Architecture, software craftsmanship, professional discipline",
-      "author": { "name": "getfatday" },
-      "category": "avatar",
-      "keywords": ["avatar", "uncle-bob", "solid", "clean-code", "clean-architecture"]
-    },
-    {
-      "name": "team-engineering",
-      "source": "./plugins/team-engineering",
-      "description": "Shared engineering domain knowledge — code quality, professionalism, continuous improvement",
-      "author": { "name": "getfatday" },
-      "category": "domain-team",
-      "keywords": ["team", "engineering", "tdd", "software-design", "shared"]
-    },
-    {
-      "name": "avatar-eric-evans",
-      "source": "./plugins/avatar-eric-evans",
-      "description": "Eric Evans avatar — Domain-Driven Design, bounded contexts, ubiquitous language, strategic design",
-      "author": { "name": "getfatday" },
-      "category": "avatar",
-      "keywords": ["avatar", "eric-evans", "ddd", "bounded-context", "domain-modeling"]
-    },
-    {
-      "name": "avatar-gene-kim",
-      "source": "./plugins/avatar-gene-kim",
-      "description": "Gene Kim avatar — DevOps, Three Ways, Five Ideals, value streams, deployment pipelines",
-      "author": { "name": "getfatday" },
-      "category": "avatar",
-      "keywords": ["avatar", "gene-kim", "devops", "three-ways", "five-ideals"]
-    },
-    {
-      "name": "avatar-boris-cherny",
-      "source": "./plugins/avatar-boris-cherny",
-      "description": "Boris Cherny avatar — AI-native development, context engineering, Claude Code architecture",
-      "author": { "name": "getfatday" },
-      "category": "avatar",
-      "keywords": ["avatar", "boris-cherny", "claude-code", "context-engineering"]
-    },
-    {
-      "name": "avatar-peter-steinberger",
-      "source": "./plugins/avatar-peter-steinberger",
-      "description": "Peter Steinberger avatar — AI agent architecture, CLI army, autonomous agents, OpenClaw",
-      "author": { "name": "getfatday" },
-      "category": "avatar",
-      "keywords": ["avatar", "steipete", "openclaw", "cli", "autonomous-agents"]
+      "keywords": ["avatar", "expert", "agent", "team", "orchestration", "engineering", "devops", "ddd"]
     }
   ]
 }

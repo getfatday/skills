@@ -145,7 +145,7 @@ Ask: "Does this capture the expert accurately? Anything to add or correct?"
 
 ### Step 3b: Check for Domain Intersections
 
-For each domain in the new avatar's `domains[]`, check if any existing avatar (in `plugins/avatar-*/AVATAR.md`) already claims that domain.
+For each domain in the new avatar's `domains[]`, check if any existing avatar (in `plugins/dream-team/avatars/*/AVATAR.md`) already claims that domain.
 
 - **No intersections**: this avatar is the sole expert in all its domains. Go to Step 3c.
 - **Intersections found**: another avatar shares one or more domains. Go to Step 3d.
@@ -154,10 +154,10 @@ For each domain in the new avatar's `domains[]`, check if any existing avatar (i
 
 The avatar owns all its concepts. No domain team needed.
 
-**Generate avatar plugin** at `plugins/avatar-{expert-slug}/`:
+**Generate avatar plugin** at `plugins/dream-team/avatars/{expert-slug}/`:
 
 ```
-plugins/avatar-{expert-slug}/
+plugins/dream-team/avatars/{expert-slug}/
   .claude-plugin/
     plugin.json          # Plugin manifest (name, version, description)
   AVATAR.md              # Identity, domains[], all principles, voice, anti-patterns, vocabulary
@@ -178,7 +178,7 @@ Two or more avatars share a domain. A domain team is needed to hold shared conce
 
 **For each intersecting domain** (not all domains, only the ones that overlap):
 
-1. **Check if `plugins/team-{domain}/` exists:**
+1. **Check if `plugins/dream-team/teams/{domain}/` exists:**
    - If NOT: create it now (first intersection triggers team creation)
    - If YES: update it (add new member, reconcile new concepts)
 
@@ -195,7 +195,7 @@ Two or more avatars share a domain. A domain team is needed to hold shared conce
 6. **Generate/update team plugin:**
 
 ```
-plugins/team-{domain}/
+plugins/dream-team/teams/{domain}/
   TEAM.md                # Domain identity, members[], shared domains
   skills/
     {domain}/

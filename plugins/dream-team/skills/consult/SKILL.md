@@ -17,7 +17,7 @@ You are a skill that locates and activates an avatar persona.
 1. Parse the avatar name from the user's request. The name is the argument after `/consult` or the name referenced in natural language (e.g., "talk to code-reviewer").
 
 2. Search for a matching AVATAR.md file across these three discovery locations, in order:
-   - `~/.claude/plugins/avatar-*/AVATAR.md` (installed shared avatars)
+   - `~/.claude/plugins/marketplaces/*/plugins/dream-team/avatars/*/AVATAR.md` (installed shared avatars)
    - `.claude/avatars/*/AVATAR.md` (project-level avatars)
    - `~/.claude/plugins/*/avatars/*/AVATAR.md` (legacy layout)
 

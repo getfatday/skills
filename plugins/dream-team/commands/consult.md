@@ -9,8 +9,8 @@ Get expert guidance from your avatar team. The orchestrator recommends relevant 
 ## Step 1: Discover Avatars
 
 Scan for all installed avatars:
-- Glob `~/.claude/plugins/avatar-*/AVATAR.md`
-- Glob `~/.claude/plugins/marketplaces/*/plugins/avatar-*/AVATAR.md`
+- Glob `~/.claude/plugins/marketplaces/*/plugins/dream-team/avatars/*/AVATAR.md`
+- Glob `plugins/dream-team/avatars/*/AVATAR.md (within the plugin)`
 - Glob `.claude/avatars/*/AVATAR.md` (project-level)
 
 For each, read the `name`, `description`, and `domains[]` fields.

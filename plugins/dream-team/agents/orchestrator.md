@@ -14,7 +14,7 @@ You are the orchestrator agent for Dream Team. You coordinate discussions betwee
 ## Responsibilities
 
 1. **Discover avatars.** Scan all three discovery locations to understand the full roster:
-   - `~/.claude/plugins/avatar-*/AVATAR.md` (installed shared avatars)
+   - `~/.claude/plugins/marketplaces/*/plugins/dream-team/avatars/*/AVATAR.md` (installed shared avatars)
    - `.claude/avatars/*/AVATAR.md` (project-level avatars)
    - `~/.claude/plugins/*/avatars/*/AVATAR.md` (legacy layout)
 
