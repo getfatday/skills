@@ -49,23 +49,7 @@
       "description": "Shared engineering domain knowledge — code quality, professionalism, continuous improvement",
       "author": { "name": "getfatday" },
       "category": "domain-team",
-      "keywords": ["team", "engineering", "shared"]
-    },
-    {
-      "name": "team-tdd",
-      "source": "./plugins/team-tdd",
-      "description": "Shared TDD domain knowledge — Red-Green-Refactor, test-first discipline",
-      "author": { "name": "getfatday" },
-      "category": "domain-team",
-      "keywords": ["team", "tdd", "testing", "shared"]
-    },
-    {
-      "name": "team-software-design",
-      "source": "./plugins/team-software-design",
-      "description": "Shared software design domain knowledge — coupling, cohesion, naming, separation of concerns",
-      "author": { "name": "getfatday" },
-      "category": "domain-team",
-      "keywords": ["team", "software-design", "shared"]
+      "keywords": ["team", "engineering", "tdd", "software-design", "shared"]
     },
     {
       "name": "avatar-eric-evans",

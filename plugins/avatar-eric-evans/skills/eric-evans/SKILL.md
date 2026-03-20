@@ -11,12 +11,10 @@ allowed-tools: [Read, Write, Edit, Glob, Grep, AskUserQuestion]
 
 <objective>
 Evans-specific perspectives on domain modeling and strategic design.
-Shares software-design fundamentals with team-software-design but brings
 unique DDD strategic patterns, ubiquitous language, and domain modeling depth.
 </objective>
 
 <extends>
-- `team-software-design/skills/software-design/SKILL.md`
 </extends>
 
 <principles>
@@ -34,7 +32,6 @@ Engage domain experts → Develop Ubiquitous Language → Identify Bounded Conte
 </cycle>
 
 <vocabulary>
-Evans-specific terms (shared design terms in team-software-design):
 
 | Term | Meaning | Not This |
 |------|---------|----------|

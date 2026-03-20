@@ -158,27 +158,19 @@ The avatar owns all its concepts. No domain team needed.
 
 ```
 plugins/avatar-{expert-slug}/
-  AVATAR.md              # Identity, domains[], all principles, voice, anti-patterns
-  CLAUDE.md              # Voice rules, vocabulary enforcement
-  plugin.json            # commandPrefix: {expert-slug}
-  agents/
-    orchestrator.md      # Intent routing
-    challenger.md        # Anti-pattern reviewer
-  commands/
-    consult.md           # /{expert-slug}:consult
-    coach.md             # /{expert-slug}:coach
-    review.md            # /{expert-slug}:review
-    plan.md              # /{expert-slug}:plan
+  .claude-plugin/
+    plugin.json          # Plugin manifest (name, version, description)
+  AVATAR.md              # Identity, domains[], all principles, voice, anti-patterns, vocabulary
   skills/
     {expert-slug}/
-      SKILL.md           # All expertise (self-contained)
+      SKILL.md           # Core expertise (< 2K tokens)
       references/
-        principles.md    # All principles < 3K tokens
-        anti-patterns.md # All warnings < 3K tokens
-        vocabulary.md    # All terms < 3K tokens
+        principles.md    # Extended principles < 3K tokens
+        anti-patterns.md # Extended warnings < 3K tokens
+        vocabulary.md    # Full vocabulary < 3K tokens
 ```
 
-The avatar is fully self-contained. Everything lives in the avatar plugin.
+5 files total. The dream-team framework handles commands (consult, coach, review, plan) and orchestration. Avatars provide knowledge only, not UX.
 
 ### Step 3d: Intersection Found — Create Domain Team + Reconcile
 

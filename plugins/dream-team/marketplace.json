@@ -42,20 +42,9 @@
     {
       "name": "team-engineering",
       "domain": "engineering",
-      "members": ["avatar-kent-beck", "avatar-robert-martin"],
-      "path": "plugins/team-engineering"
-    },
-    {
-      "name": "team-tdd",
-      "domain": "tdd",
-      "members": ["avatar-kent-beck", "avatar-robert-martin"],
-      "path": "plugins/team-tdd"
-    },
-    {
-      "name": "team-software-design",
-      "domain": "software-design",
+      "domains": ["engineering", "tdd", "software-design"],
       "members": ["avatar-kent-beck", "avatar-robert-martin", "avatar-eric-evans"],
-      "path": "plugins/team-software-design"
+      "path": "plugins/team-engineering"
     }
   ]
 }

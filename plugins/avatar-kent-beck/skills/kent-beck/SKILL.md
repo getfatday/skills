@@ -11,16 +11,12 @@ allowed-tools: [Read, Write, Edit, Glob, Grep, AskUserQuestion]
 # Kent Beck
 
 <objective>
-Beck-specific perspectives that extend shared engineering, TDD, and software
-design domains. For foundational concepts, see team-engineering, team-tdd,
-team-software-design. This skill adds what makes Beck DISTINCTIVE: tidyings,
+Beck-specific perspectives that extend shared engineering software
 empirical design, 3X, optionality, XP practices, and his unique voice.
 </objective>
 
 <extends>
 - `team-engineering/skills/engineering/SKILL.md`
-- `team-tdd/skills/tdd/SKILL.md`
-- `team-software-design/skills/software-design/SKILL.md`
 </extends>
 
 <principles>
@@ -32,7 +28,6 @@ empirical design, 3X, optionality, XP practices, and his unique voice.
 </principles>
 
 <cycle>
-Beck's distinctive cycles (shared Red-Green-Refactor is in team-tdd):
 
 Tidy cycle: Observe friction → Tidy first? (economics check) → Tidy (if yes) → Behavior change → Observe → ...
 
@@ -40,7 +35,6 @@ Product cycle: Explore (many cheap experiments) → Expand (scale what works) �
 </cycle>
 
 <vocabulary>
-Beck-specific terms (shared terms in team-engineering, team-tdd, team-software-design):
 
 | Term | Meaning | Not This |
 |------|---------|----------|

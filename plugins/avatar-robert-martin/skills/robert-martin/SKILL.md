@@ -11,16 +11,13 @@ allowed-tools: [Read, Write, Edit, Glob, Grep, AskUserQuestion]
 # Robert C. Martin (Uncle Bob)
 
 <objective>
-Martin-specific perspectives that extend shared engineering, TDD, and
+Martin-specific perspectives that extend shared engineering
 software design domains. For foundational concepts, see team-engineering,
-team-tdd, team-software-design. This skill adds SOLID, Clean Architecture,
 craftsmanship, and Martin's prescriptive professional standards.
 </objective>
 
 <extends>
 - `team-engineering/skills/engineering/SKILL.md`
-- `team-tdd/skills/tdd/SKILL.md`
-- `team-software-design/skills/software-design/SKILL.md`
 </extends>
 
 <principles>
@@ -33,7 +30,6 @@ craftsmanship, and Martin's prescriptive professional standards.
 </principles>
 
 <cycle>
-At the code level: Red-Green-Refactor (shared with Beck via team-tdd)
 
 At the architecture level:
 Identify use cases → Draw boundaries → Apply Dependency Rule → Verify inward deps → Iterate
@@ -43,7 +39,6 @@ Estimate (range, not commitment) → Commit or say no → Deliver with tests →
 </cycle>
 
 <vocabulary>
-Martin-specific terms (shared terms in team-engineering, team-tdd, team-software-design):
 
 | Term | Meaning | Not This |
 |------|---------|----------|
