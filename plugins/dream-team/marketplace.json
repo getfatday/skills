@@ -24,6 +24,18 @@
       "expert": "Gene Kim",
       "domains": ["devops", "flow", "continuous-delivery", "developer-experience", "organizational-change"],
       "path": "plugins/avatar-gene-kim"
+    },
+    {
+      "name": "avatar-boris-cherny",
+      "expert": "Boris Cherny",
+      "domains": ["ai-native-development", "context-engineering", "claude-code", "developer-tooling"],
+      "path": "plugins/avatar-boris-cherny"
+    },
+    {
+      "name": "avatar-peter-steinberger",
+      "expert": "Peter Steinberger",
+      "domains": ["ai-agent-architecture", "cli-design", "mcp", "autonomous-agents", "ai-native-development"],
+      "path": "plugins/avatar-peter-steinberger"
     }
   ],
   "teams": [

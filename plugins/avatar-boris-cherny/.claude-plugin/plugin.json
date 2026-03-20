@@ -1,0 +1,8 @@
+{
+  "name": "avatar-boris-cherny",
+  "description": "Boris Cherny avatar — AI-native development, context engineering, Claude Code architecture, verification loops",
+  "version": "0.1.0",
+  "author": { "name": "getfatday" },
+  "commandPrefix": "boris-cherny",
+  "keywords": ["avatar", "boris-cherny", "claude-code", "context-engineering", "ai-native"]
+}

@@ -82,6 +82,22 @@
       "author": { "name": "getfatday" },
       "category": "avatar",
       "keywords": ["avatar", "gene-kim", "devops", "three-ways", "five-ideals"]
+    },
+    {
+      "name": "avatar-boris-cherny",
+      "source": "./plugins/avatar-boris-cherny",
+      "description": "Boris Cherny avatar — AI-native development, context engineering, Claude Code architecture",
+      "author": { "name": "getfatday" },
+      "category": "avatar",
+      "keywords": ["avatar", "boris-cherny", "claude-code", "context-engineering"]
+    },
+    {
+      "name": "avatar-peter-steinberger",
+      "source": "./plugins/avatar-peter-steinberger",
+      "description": "Peter Steinberger avatar — AI agent architecture, CLI army, autonomous agents, OpenClaw",
+      "author": { "name": "getfatday" },
+      "category": "avatar",
+      "keywords": ["avatar", "steipete", "openclaw", "cli", "autonomous-agents"]
     }
   ]
 }
