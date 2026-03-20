@@ -12,6 +12,22 @@ You are a skill that creates avatar plugins from real-world experts. You work in
 
 Parse the expert name from `$ARGUMENTS` (e.g., "Kent Beck"). Generate `expert-slug` by lowercasing and hyphenating (e.g., "kent-beck").
 
+## Batch Mode
+
+If `$ARGUMENTS` contains `--batch`, skip all intermediate AskUserQuestion checkpoints (source review, analysis review, build confirmation). The user has already confirmed they want this avatar. Run the full pipeline end-to-end without stopping.
+
+Batch mode still:
+- Performs all research and analysis (no shortcuts on quality)
+- Presents the final reconciliation summary in the completion output
+- Stops on errors (missing sources, analysis gaps)
+
+Batch mode does NOT:
+- Ask "are there sources I missed?"
+- Ask "does this capture the expert accurately?"
+- Ask "does this avatar look correct?"
+
+When invoked from `/avatar-recruit`, batch mode is always on.
+
 ## Naming Conventions
 
 These are non-negotiable. Every avatar follows this pattern:
@@ -54,16 +70,17 @@ Build a source catalog at `.avatar-workspace/{expert-slug}/research/sources.md` 
 
 ### User Checkpoint
 
-Use AskUserQuestion to present the source catalog. Ask:
+**If NOT batch mode:** Use AskUserQuestion to present the source catalog. Ask:
 - "Are there sources I missed that you'd like me to add?"
 - "Should I proceed with analysis?"
-
 Let the user add more sources. Create research notes for any additions.
+
+**If batch mode:** Log the source count and proceed.
 
 ### Completion Gate
 
 - At least 3 sources cataloged
-- User confirmed to proceed
+- User confirmed to proceed (or batch mode)
 
 ---
 
@@ -99,18 +116,19 @@ Write the complete analysis to `.avatar-workspace/{expert-slug}/analysis.md` usi
 
 ### User Checkpoint
 
-Use AskUserQuestion to present the analysis summary. Show:
+**If NOT batch mode:** Use AskUserQuestion to present the analysis summary. Show:
 - Number of principles extracted
 - Key mental models identified
 - Anti-pattern count
 - Cycle model overview
-
 Ask: "Does this capture the expert accurately? Anything to add or correct?"
+
+**If batch mode:** Log the analysis dimensions and proceed.
 
 ### Completion Gate
 
 - All 6 sections populated with source citations
-- User approved the analysis
+- User approved the analysis (or batch mode)
 
 ---
 
@@ -118,10 +136,12 @@ Ask: "Does this capture the expert accurately? Anything to add or correct?"
 
 ### Step 3a: Configuration
 
-Use AskUserQuestion to ask the user for:
+**If NOT batch mode:** Use AskUserQuestion to ask the user for:
 - **Domain name**: The primary domain this avatar covers (e.g., "engineering", "product")
 - **Confirm mapping**: "Does {expert-name} → {domain} look right?"
 - **Additional domains[]**: Any secondary domain tags
+
+**If batch mode:** Infer the primary domain and secondary domains from the analysis Domain Mapping table. Use the area with the highest depth rating as the primary domain.
 
 ### Step 3b: Check for Domain Intersections
 
@@ -206,7 +226,7 @@ members:
 ---
 ```
 
-7. **Present reconciliation to user** via AskUserQuestion before applying changes. Show what moves where.
+7. **Present reconciliation to user** via AskUserQuestion before applying changes. Show what moves where. **In batch mode:** log the reconciliation summary and proceed.
 
 **Key rule: teams are only created on intersection, never for a solo avatar.** The first avatar in a domain is self-contained. Teams emerge when a second avatar proves shared concepts exist.
 
@@ -246,12 +266,13 @@ If domain teams were created or updated, add/update the `teams` array:
 
 ### Step 3g: Final Checkpoint
 
-Use AskUserQuestion to present:
+**If NOT batch mode:** Use AskUserQuestion to present:
 - List of all generated files
 - AVATAR.md preview (principles + voice)
 - If teams created: reconciliation summary (what moved where)
-
 Ask: "Does this look correct? Ready to finalize?"
+
+**If batch mode:** Output a summary line: "Created avatar-{slug}: {N} files, domains: [{domains}], teams: [{teams created/updated}]"
 
 ### Completion Gate
 
@@ -259,4 +280,4 @@ Ask: "Does this look correct? Ready to finalize?"
 - Domain teams created only if intersections exist, reconciled if they do
 - No concept duplicated across plugins
 - marketplace.json updated
-- User confirmed
+- User confirmed (or batch mode)

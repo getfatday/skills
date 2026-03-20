@@ -97,11 +97,13 @@ For each selected candidate, determine the optimal creation order:
 
 Present the creation order to the user with a brief explanation of why.
 
-Then **invoke the avatar-create skill for each candidate in sequence**. Use the Skill tool:
+Then **invoke the avatar-create skill for each candidate in sequence** with batch mode. Use the Skill tool:
 
 ```
-Skill("avatar-create", args: "{Expert Name}")
+Skill("avatar-create", args: "{Expert Name} --batch")
 ```
+
+Batch mode skips all intermediate confirmations. The user already approved the full list.
 
 Between each creation, note:
 - What domain teams were created or reconciled
