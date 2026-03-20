@@ -1,6 +1,6 @@
 ---
 name: avatar-create
-description: "Create a new avatar agent — research an expert, analyze their work, generate a complete avatar plugin"
+description: "Create a new avatar agent — research an expert, analyze their work, generate avatar plugin + domain team plugin"
 disable-model-invocation: true
 user-invocable: true
 allowed-tools: [Read, Write, Edit, Bash, Glob, Grep, WebSearch, AskUserQuestion]
@@ -11,6 +11,17 @@ allowed-tools: [Read, Write, Edit, Bash, Glob, Grep, WebSearch, AskUserQuestion]
 You are a skill that creates avatar plugins from real-world experts. You work in three stages: COLLECT, ANALYZE, BUILD. Each stage has a completion gate that must pass before advancing.
 
 Parse the expert name from `$ARGUMENTS` (e.g., "Kent Beck"). Generate `expert-slug` by lowercasing and hyphenating (e.g., "kent-beck").
+
+## Naming Conventions
+
+These are non-negotiable. Every avatar follows this pattern:
+
+- **Plugin dir**: `plugins/avatar-{first-last}/` (full name, never abbreviated)
+- **Command prefix**: `{first-last}` in plugin.json (e.g., `/kent-beck:consult`)
+- **Skill dir**: `skills/{first-last}/` (person-namespaced, NOT domain-namespaced)
+- **Domain tags**: in AVATAR.md `domains[]` for orchestrator routing only
+
+Never use domain names as command prefixes or skill directory names. Two experts in the same domain must not collide.
 
 ---
 
@@ -103,62 +114,118 @@ Ask: "Does this capture the expert accurately? Anything to add or correct?"
 
 ---
 
-## Stage 3: BUILD — Generate the Avatar Plugin
+## Stage 3: BUILD — Generate the Avatar Plugin + Domain Team
 
-### Configuration
+### Step 3a: Configuration
 
 Use AskUserQuestion to ask the user for:
-- **Domain name**: The primary domain this avatar covers (e.g., "engineering", "product", "testing")
+- **Domain name**: The primary domain this avatar covers (e.g., "engineering", "product")
 - **Confirm mapping**: "Does {expert-name} → {domain} look right?"
 - **Additional domains[]**: Any secondary domain tags
 
-### Generate Plugin
+### Step 3b: Check for Existing Domain Team
 
-Generate the complete avatar plugin at `plugins/avatar-{expert-slug}/` using templates from `../../templates/avatar-plugin/`. Every template placeholder must be filled from the analysis — never invent content.
+Search for `plugins/team-{domain}/TEAM.md`:
+- **If NOT found**: this is the first avatar in this domain. Go to Step 3c.
+- **If found**: this is a subsequent avatar. Go to Step 3d.
 
-#### File Structure
+### Step 3c: First Avatar in Domain — Create Both Plugins
+
+This expert is the first in their domain. Create both the avatar plugin AND the domain team plugin.
+
+**Classify the analysis content into two buckets:**
+
+1. **Shared domain knowledge** — concepts any expert in this domain would agree with. Core vocabulary, foundational processes, widely-accepted principles. These go in `team-{domain}`.
+
+2. **Expert-specific knowledge** — this expert's unique voice, distinctive opinions, models they invented, anti-patterns only they emphasize, their specific framing. These stay in `avatar-{expert-slug}`.
+
+**When in doubt, keep it in the avatar.** It's easier to move things to shared later than to pull them back.
+
+**Generate avatar plugin** at `plugins/avatar-{expert-slug}/`:
 
 ```
 plugins/avatar-{expert-slug}/
-  AVATAR.md              # From ../../templates/avatar-plugin/AVATAR.md
-  CLAUDE.md              # From ../../templates/avatar-plugin/CLAUDE.md
-  plugin.json            # From ../../templates/avatar-plugin/plugin.json
+  AVATAR.md              # Identity, domains[], UNIQUE principles, voice, distinctive anti-patterns
+  CLAUDE.md              # Voice rules, vocabulary enforcement (expert-specific terms only)
+  plugin.json            # commandPrefix: {expert-slug}
   agents/
-    orchestrator.md      # From ../../templates/avatar-plugin/orchestrator.md
-    challenger.md        # From ../../templates/avatar-plugin/challenger.md
+    orchestrator.md      # Intent routing
+    challenger.md        # Anti-pattern reviewer
   commands/
-    consult.md           # From ../../templates/avatar-plugin/consult.md
-    coach.md             # From ../../templates/avatar-plugin/coach.md
-    review.md            # From ../../templates/avatar-plugin/review.md
-    plan.md              # From ../../templates/avatar-plugin/plan.md
+    consult.md           # /{expert-slug}:consult
+    coach.md             # /{expert-slug}:coach
+    review.md            # /{expert-slug}:review
+    plan.md              # /{expert-slug}:plan
   skills/
-    {domain}/
-      SKILL.md           # From ../../templates/avatar-plugin/SKILL.md
+    {expert-slug}/
+      SKILL.md           # Expert-only expertise (unique models, distinctive cycle)
       references/
-        principles.md    # Extended principles with citations < 3K tokens
-        anti-patterns.md # Extended anti-patterns < 3K tokens
-        vocabulary.md    # Full vocabulary table < 3K tokens
+        principles.md    # Expert-specific principles < 3K tokens
+        anti-patterns.md # Expert-specific warnings < 3K tokens
+        vocabulary.md    # Expert-specific terms < 3K tokens
 ```
 
-#### Content Rules
+**Generate domain team plugin** at `plugins/team-{domain}/`:
+
+```
+plugins/team-{domain}/
+  TEAM.md                # Domain identity, members[], shared domains
+  skills/
+    {domain}/
+      SKILL.md           # Shared domain skill (foundational concepts)
+      references/
+        vocabulary.md    # Canonical term definitions for the domain
+        principles.md    # Principles all domain members agree on
+```
+
+**TEAM.md schema:**
+```yaml
+---
+name: "{Domain Name}"
+description: "Shared {domain} knowledge across avatar members"
+domains:
+  - "{domain}"
+members:
+  - "avatar-{expert-slug}"
+---
+
+# {Domain Name} Team
+
+Shared knowledge for the {domain} domain. This plugin contains concepts,
+vocabulary, and principles that all member avatars agree on.
+
+## Members
+- [{Expert Name}](../avatar-{expert-slug}/AVATAR.md)
+```
+
+### Step 3d: Subsequent Avatar in Domain — Reconcile
+
+A domain team already exists. Read its current content.
+
+1. **Create the new avatar plugin** (same structure as 3c, expert-specific content only)
+2. **Read the existing team plugin** (`plugins/team-{domain}/`)
+3. **Read existing member avatars** to understand current shared/unique split
+4. **Reconcile:**
+   - Concepts the NEW expert shares with existing team content → already in team, no action
+   - Concepts the NEW expert brings that are universally agreed → move to team plugin
+   - Concepts that are expert-specific → stay in the new avatar
+   - Concepts in existing avatars that the new expert ALSO has → move from avatar to team
+5. **Update existing avatar plugins** to remove concepts that moved to shared
+6. **Update TEAM.md** to add new member
+7. **Present reconciliation to user** via AskUserQuestion before applying changes
+
+### Step 3e: Content Rules
 
 - **AVATAR.md** must match the schema at `../../schema/AVATAR.md`
-- **SKILL.md** must be under 2K tokens — keep it tight
+- **SKILL.md** must be under 2K tokens
 - **Reference files** must each be under 3K tokens
-- **plugin.json** `commandPrefix` = the primary domain name
-- All content must trace back to the analysis. If it is not in the analysis, it does not go in the plugin.
+- **plugin.json** `commandPrefix` = the expert slug (NOT the domain)
+- All content must trace back to the analysis. Never invent content.
+- All internal references use person-namespaced paths: `skills/{expert-slug}/`
 
-#### Reference Files
+### Step 3f: Update Marketplace
 
-These are NOT templated — generate them directly from the analysis:
-
-- `references/principles.md` — Full principle descriptions with source citations, examples, and when-to-apply guidance
-- `references/anti-patterns.md` — Full anti-pattern descriptions with detection signals, examples, and corrections
-- `references/vocabulary.md` — Complete vocabulary table with definitions, usage examples, and common misuses
-
-### Update Marketplace
-
-After generating the plugin, update `plugins/dream-team/marketplace.json` by adding an entry to the `avatars` array:
+Update `plugins/dream-team/marketplace.json` — add to the `avatars` array:
 
 ```json
 {
@@ -169,17 +236,30 @@ After generating the plugin, update `plugins/dream-team/marketplace.json` by add
 }
 ```
 
-### Final Checkpoint
+If a new domain team was created, also add to a `teams` array:
+
+```json
+{
+  "name": "team-{domain}",
+  "domain": "{domain}",
+  "members": ["avatar-{expert-slug}"],
+  "path": "plugins/team-{domain}"
+}
+```
+
+### Step 3g: Final Checkpoint
 
 Use AskUserQuestion to present:
-- List of all generated files
-- AVATAR.md preview (principles + voice)
-- Plugin.json contents
+- List of all generated files (avatar plugin + domain team if created)
+- AVATAR.md preview (unique principles + voice)
+- TEAM.md preview if created (shared concepts)
+- Reconciliation summary if domain team already existed
 
-Ask: "Does this avatar look correct? Ready to finalize?"
+Ask: "Does this look correct? Ready to finalize?"
 
 ### Completion Gate
 
-- All files generated and match templates
+- Avatar plugin generated with person-namespaced structure
+- Domain team plugin created (first) or reconciled (subsequent)
 - marketplace.json updated
 - User confirmed
