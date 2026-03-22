@@ -1,0 +1,23 @@
+{
+  "skill_name": "document-define",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I want to define a new document type called 'team-charter'. It should have fields for name (required string), mission (required string), status (optional enum: draft, active, archived), and created (required date). Sections: Mission (required) and Scope (required), Team (optional). It's a standalone type. Use template creation mode.",
+      "expected_output": "Creates .config/documents/types/team-charter.md with Identity, Fields, Sections, Relationships, Lifecycle, Creation sections. NO Collection section. Adds a row to the root type's Collections table for the location. Generates skill, template, and command.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Define a type called 'program' that hosts initiatives and epics as child collections. Fields: name (required string), status (required enum: active, paused, completed), quarter (optional string), created (required date). Sections: Overview (required), Roadmap (optional). The program type should declare Collections for initiatives at ./initiatives/{name}.md and epics at ./epics/{name}.md. Use template creation mode.",
+      "expected_output": "Creates .config/documents/types/program.md with Identity, Fields, Sections, Relationships, Collections table (initiatives and epics), Lifecycle, Creation. NO Collection section on the type. Adds row to root type's Collections table. Generates skill with collection scaffolding in create operation.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Run /document:list-types to show all document types, their locations, and whether their generated skills are up to date.",
+      "expected_output": "Reads root.md to find root type (product-portfolio). Reads root type's Collections table for standalone type locations. For hosted types, finds their parent's Collections/Facets tables. Shows all types with resolved locations, skill status (generated/missing/stale), and Features column (C for collections, F for facets, H for hosted).",
+      "files": []
+    }
+  ]
+}
