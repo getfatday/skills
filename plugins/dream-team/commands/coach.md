@@ -1,16 +1,17 @@
 ---
 description: "Team coaching — guided walkthrough with expert avatars, learn by applying their frameworks to your situation"
+pattern-hint: sequential
 ---
 
 # Team Coach
 
-Get coached through a practice or concept by your avatar team. Each avatar teaches using their own frameworks, with their own voice.
+Get coached through a practice or concept by your avatar team. The orchestrator selects the best conversation pattern, defaulting to sequential (progressive learning through stages).
 
 ## Step 1: Discover Avatars
 
 Scan for all installed avatars:
 - Glob `~/.claude/plugins/marketplaces/*/plugins/dream-team/avatars/*/AVATAR.md`
-- Glob `plugins/dream-team/avatars/*/AVATAR.md (within the plugin)`
+- Glob `plugins/dream-team/avatars/*/AVATAR.md` (within the plugin)
 - Glob `.claude/avatars/*/AVATAR.md` (project-level)
 
 For each, read the `name`, `description`, and `domains[]` fields.
@@ -27,18 +28,23 @@ Use AskUserQuestion to let the user choose:
 - **"Let me pick"** — present all avatars with `multiSelect: true`.
 - **"Everyone"** — all avatars coach. Round-table teaching.
 
-## Step 4: Coaching Session
+## Step 4: Select Pattern
 
-For each selected avatar:
+Read `patterns/router.md` and classify the coaching task. The `pattern-hint` is `sequential`, but the adaptive router may override:
+- Single concept, one expert → **moe-routing** (deep 1:1 coaching)
+- Multiple perspectives needed → **round-robin** (each coach takes a turn, building on prior)
+- Broad overview first → **map-reduce** (parallel takes, then synthesize)
+- Concept has debate → **debate** (coaches argue approaches, user learns from the tension)
+
+Announce the selected pattern to the user.
+
+## Step 5: Coaching Session
+
+Execute the selected pattern. For each selected avatar:
 1. Read its `AVATAR.md` fully
 2. The avatar introduces the concept from THEIR perspective, using THEIR voice
 3. The avatar walks the user through applying it to their actual situation
 4. Use AskUserQuestion at each step to keep the user engaged
-
-If multiple avatars:
-- Each takes a turn coaching the same topic from their angle
-- After all perspectives, highlight where they agree and where they differ
-- Let the user ask follow-up questions directed at specific avatars
 
 **Coaching format per avatar:**
 ```
@@ -50,12 +56,14 @@ If multiple avatars:
 **Watch out for:** {anti-patterns relevant to this concept}
 ```
 
-## Step 5: Continue
+The orchestrator monitors for signals (e.g., user is confused → slow down and go deeper with one expert).
+
+## Step 6: Continue
 
 Use AskUserQuestion:
 - "Practice this with my code/project" — hands-on application
 - "Hear from another expert" — add an avatar to the session
-- "Go deeper on {avatar}'s approach" — 1:1 deep dive
+- "Go deeper on {avatar}'s approach" — switch to moe-routing for 1:1 deep dive
 - "I'm good" — end
 
 

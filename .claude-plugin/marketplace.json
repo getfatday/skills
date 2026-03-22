@@ -22,7 +22,7 @@
     {
       "name": "dream-team",
       "source": "./plugins/dream-team",
-      "description": "Avatar framework and marketplace — create, recruit, consult, review, plan, and coach with AI expert agents. Ships with 6 curated avatars (Beck, Martin, Evans, Kim, Cherny, Steinberger) and 1 domain team.",
+      "description": "Avatar framework and marketplace — create, recruit, consult, review, plan, and coach with AI expert agents. Ships with 21 curated avatars and 10 composable conversation patterns (map-reduce, debate, reflection, sequential, supervisor, hierarchical, blackboard, voting, round-robin, MoE routing) with an adaptive router that selects and switches patterns dynamically.",
       "author": { "name": "getfatday" },
       "category": "framework",
       "keywords": ["avatar", "expert", "agent", "team", "orchestration", "engineering", "devops", "ddd"]
