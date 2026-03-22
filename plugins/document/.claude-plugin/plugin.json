@@ -1,0 +1,7 @@
+{
+  "name": "document",
+  "description": "Document type system — define document types and generate per-type management skills with lifecycle, relationships, and CRUD operations",
+  "version": "0.2.0",
+  "author": { "name": "xp" },
+  "keywords": ["document", "type-system", "meta-skill", "skill-generator", "lifecycle"]
+}

@@ -26,6 +26,14 @@
       "author": { "name": "getfatday" },
       "category": "framework",
       "keywords": ["avatar", "expert", "agent", "team", "orchestration", "engineering", "devops", "ddd"]
+    },
+    {
+      "name": "document",
+      "source": "./plugins/document",
+      "description": "Document type system — define document types and generate per-type management skills with lifecycle, relationships, and CRUD operations",
+      "author": { "name": "getfatday" },
+      "category": "meta-skills",
+      "keywords": ["document", "type-system", "meta-skill", "skill-generator", "lifecycle"]
     }
   ]
 }
