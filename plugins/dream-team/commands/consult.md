@@ -1,16 +1,17 @@
 ---
 description: "Team consultation — get expert perspectives from your avatar team on any question"
+pattern-hint: map-reduce
 ---
 
 # Team Consult
 
-Get expert guidance from your avatar team. The orchestrator recommends relevant avatars, or you pick who to include.
+Get expert guidance from your avatar team. The orchestrator selects the best conversation pattern for your question, defaulting to map-reduce (parallel perspectives).
 
 ## Step 1: Discover Avatars
 
 Scan for all installed avatars:
 - Glob `~/.claude/plugins/marketplaces/*/plugins/dream-team/avatars/*/AVATAR.md`
-- Glob `plugins/dream-team/avatars/*/AVATAR.md (within the plugin)`
+- Glob `plugins/dream-team/avatars/*/AVATAR.md` (within the plugin)
 - Glob `.claude/avatars/*/AVATAR.md` (project-level)
 
 For each, read the `name`, `description`, and `domains[]` fields.
@@ -26,27 +27,30 @@ Use AskUserQuestion to let the user choose a selection mode:
 
 If auto-select: match `$ARGUMENTS` against each avatar's `domains[]`. Rank by relevance. Propose top 2-4. Present via AskUserQuestion for confirmation.
 
-## Step 3: Run Consultation
+## Step 3: Select Pattern
+
+Read `patterns/router.md` and classify the user's question. The `pattern-hint` for this command is `map-reduce`, but the adaptive router may override based on:
+- Single-domain question → **moe-routing** (faster, one expert)
+- Contentious topic detected → **debate** (adversarial stress-testing)
+- Simple factual question → **voting** (consensus)
+
+Announce the selected pattern to the user.
+
+## Step 4: Run Consultation
+
+Execute the selected pattern by reading its definition from `patterns/{pattern-name}.md` and following its flow.
 
 For each selected avatar:
 1. Read its `AVATAR.md` fully (principles, voice, anti-patterns, vocabulary)
-2. Respond to the user's question **in that avatar's voice and perspective**
-3. Cite which principles support the response
-4. Flag any anti-patterns detected
+2. Execute the pattern's steps using the avatar team
 
-If multiple avatars are selected, present each perspective in sequence under a header with the avatar's name. After all perspectives, synthesize:
+The orchestrator monitors for mid-conversation signals and may switch patterns (see `patterns/router.md` Phase 3).
 
-```
-## Synthesis
-Where the avatars agree: ...
-Where they diverge: ...
-Recommended action: ...
-```
-
-## Step 4: Continue
+## Step 5: Continue
 
 Use AskUserQuestion:
-- "Dig deeper with one of these experts" — transition to 1:1 with a specific avatar
+- "Dig deeper with one of these experts" — transition to 1:1 (moe-routing)
+- "Debate this point" — switch to debate pattern on a specific disagreement
 - "Get a different team's take" — re-run selection
 - "I'm good" — end
 
