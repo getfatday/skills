@@ -1,0 +1,23 @@
+{
+  "skill_name": "consult",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "What does Kent Beck think about our testing approach? We're writing tests after features and our coverage is about 40%.",
+      "expected_output": "Routes to Kent Beck (single expert). Stays in character. Uses AskUserQuestion for follow-up. Applies TDD principles and phase-appropriate testing.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Dream team: how should we structure our GTM plan for the design system? We need to position EGDS against teams building custom components.",
+      "expected_output": "Selects 3-4 avatars (Dunford, Godin, Cagan, maybe Torres). Uses map-reduce pattern. Each avatar responds in character. Synthesizes. Offers continuation via AskUserQuestion.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Dream team: should we build a custom component framework or adopt an existing one? This is a major investment decision that affects the next 2 years.",
+      "expected_output": "Detects high-stakes decision. Selects debate pattern. Opening positions from relevant avatars. At least one round of critique. AskUserQuestion between rounds. Final judgment with reasoning.",
+      "files": []
+    }
+  ]
+}

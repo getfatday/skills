@@ -1,7 +1,7 @@
 {
   "name": "dream-team",
   "description": "Avatar framework and marketplace — create, install, recruit, and orchestrate AI expert agents",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "author": { "name": "getfatday" },
   "keywords": ["avatar", "expert", "agent", "team", "orchestration", "framework"]
 }

@@ -1,38 +1,75 @@
 ---
 name: consult
-description: "Talk to a single avatar expert. Load an avatar by name and respond in character using its persona."
+description: >
+  Team consultation — get expert perspectives from your avatar team on any
+  question. Assembles a team, selects a conversation pattern (map-reduce,
+  debate, reflection, etc.), and coordinates multi-avatar discussion with
+  structured checkpoints. Use whenever the user wants expert perspectives,
+  asks "what do you think about X?", "dream team", "consult", "get
+  perspectives on", or wants to discuss a question with expert avatars.
 allowed-tools:
   - Read
   - Glob
   - Grep
   - AskUserQuestion
+  - Agent
 ---
 
-Trigger: `/consult {name}` or "talk to {name}"
+# Team Consult
 
-You are a skill that locates and activates an avatar persona.
+Get expert guidance from your avatar team. The orchestrator selects the best
+conversation pattern for your question, defaulting to map-reduce (parallel
+perspectives).
 
-## Steps
+## Step 1: Discover Avatars
 
-1. Parse the avatar name from the user's request. The name is the argument after `/consult` or the name referenced in natural language (e.g., "talk to code-reviewer").
+Scan for all installed avatars:
+- Glob `~/.claude/plugins/marketplaces/*/plugins/dream-team/avatars/*/AVATAR.md`
+- Glob `plugins/dream-team/avatars/*/AVATAR.md` (within the plugin)
+- Glob `.claude/avatars/*/AVATAR.md` (project-level)
 
-2. Search for a matching AVATAR.md file across these three discovery locations, in order:
-   - `~/.claude/plugins/marketplaces/*/plugins/dream-team/avatars/*/AVATAR.md` (installed shared avatars)
-   - `.claude/avatars/*/AVATAR.md` (project-level avatars)
-   - `~/.claude/plugins/*/avatars/*/AVATAR.md` (legacy layout)
+For each, read the `name`, `description`, and `domains[]` fields.
 
-   Use Glob to scan each location. Read the `name` field from the YAML frontmatter of each discovered AVATAR.md. Match case-insensitively against the requested name.
+## Step 2: Select Team
 
-3. If no match is found, tell the user which locations were searched and that no avatar with that name was found. Suggest they check installed avatars or create one.
+Use AskUserQuestion to let the user choose a selection mode:
 
-4. If a match is found, read the full AVATAR.md content.
+**Options:**
+- **"Auto-select (Recommended)"** — orchestrator analyzes the question, maps
+  to domains, proposes the most relevant 2-4 avatars. User confirms.
+- **"Let me pick"** — present all available avatars with `multiSelect: true`.
+  User chooses.
+- **"Everyone"** — include all installed avatars. Full panel.
 
-5. Adopt the avatar's persona completely:
-   - Follow the principles listed in `<principles>`
-   - Use the communication style defined in `<voice>`
-   - Avoid behaviors listed in `<anti-patterns>`
-   - Use terminology from `<vocabulary>` correctly
+If auto-select: match the user's question against each avatar's `domains[]`.
+Rank by relevance. Propose top 2-4. Present via AskUserQuestion for confirmation.
 
-6. Respond to the user AS the avatar. Stay in character for the entire conversation.
+## Step 3: Select Pattern
 
-7. Use AskUserQuestion to prompt follow-up questions and keep the consultation going. Frame questions in the avatar's voice and area of expertise.
+Read `patterns/router.md` and classify the user's question. The `pattern-hint`
+for this command is `map-reduce`, but the adaptive router may override based on:
+- Single-domain question → **moe-routing** (faster, one expert)
+- Contentious topic detected → **debate** (adversarial stress-testing)
+- Simple factual question → **voting** (consensus)
+
+Announce the selected pattern to the user.
+
+## Step 4: Run Consultation
+
+Execute the selected pattern by reading its definition from
+`patterns/{pattern-name}.md` and following its flow.
+
+For each selected avatar:
+1. Read its `AVATAR.md` fully (principles, voice, anti-patterns, vocabulary)
+2. Execute the pattern's steps using the avatar team
+
+The orchestrator monitors for mid-conversation signals and may switch patterns
+(see `patterns/router.md` Phase 3).
+
+## Step 5: Continue
+
+Use AskUserQuestion:
+- "Dig deeper with one of these experts" — transition to 1:1 (moe-routing)
+- "Debate this point" — switch to debate pattern on a specific disagreement
+- "Get a different team's take" — re-run selection
+- "I'm good" — end

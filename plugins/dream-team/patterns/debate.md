@@ -48,16 +48,29 @@ Response (with reasoning trail)
 
 1. **fan-out (opening statements)** — Each avatar states their initial position on the question, grounded in their principles. They must take a clear stance.
 
-2. **critique (rounds)** — For each round:
+2. **Checkpoint: Opening positions** — Use AskUserQuestion after presenting opening positions:
+   - "Continue the debate" — proceed to critique rounds
+   - "Steer the discussion toward {topic}" — focus the critique on a specific aspect
+   - "Add {avatar name} to the debate" — bring in another perspective
+   - "I've heard enough" — skip to judgment
+
+3. **critique (rounds)** — For each round:
    - Each avatar receives the other avatars' positions
    - Each avatar critiques the others: identifies logical flaws, missing considerations, or principle violations
    - Each avatar refines their own position based on valid critiques received
 
-3. **loop** — Repeat critique rounds until:
+4. **Checkpoint: After each round** — Use AskUserQuestion:
+   - "Another round" — continue the debate
+   - "I'm convinced by {avatar name}" — end debate with that position
+   - "Steer toward {topic}" — refocus the next round
+   - "Move to judgment" — skip remaining rounds
+
+5. **loop** — Repeat critique rounds until:
    - `converged` — positions stop changing significantly
    - `max-rounds` — hard limit reached (default: 3)
+   - User chose to end early via checkpoint
 
-4. **fan-in (judgment)** — Orchestrator acts as judge:
+6. **fan-in (judgment)** — Orchestrator acts as judge:
    - Identifies the strongest arguments from each side
    - Notes which critiques were substantive vs. superficial
    - Produces a final recommendation with explicit reasoning trail

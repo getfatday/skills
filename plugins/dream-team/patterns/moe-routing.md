@@ -41,7 +41,15 @@ Response
 
 2. **Dispatch** — Send the full prompt to the selected avatar. The avatar responds using its complete persona (principles, voice, vocabulary).
 
-3. **Present** — Return the specialist's response directly. Optionally note which specialist was selected and why.
+3. **Present** — Return the specialist's response directly. Note which specialist was selected and why.
+
+4. **Checkpoint** — Use AskUserQuestion after the response:
+   - "Dig deeper on this topic" — continue the 1:1 with the same avatar
+   - "Get other perspectives" — switch to map-reduce with additional avatars
+   - "Challenge this view" — switch to reflection (add a critic avatar)
+   - "I'm good" — end
+
+   The avatar stays in character for follow-ups. Each follow-up response should end with another AskUserQuestion to keep the consultation flowing.
 
 ## Routing Template
 
