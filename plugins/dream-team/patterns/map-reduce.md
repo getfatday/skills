@@ -40,6 +40,13 @@ User prompt
    - Identify areas of **disagreement** with reasoning from each side
    - Produce **actionable recommendations** that integrate the team's expertise
 
+3. **Checkpoint** — Use AskUserQuestion after the synthesis:
+   - "Dig deeper with {avatar name}" — switch to moe-routing for 1:1 with that expert
+   - "Debate {specific point}" — switch to debate pattern on an area of disagreement
+   - "Get a different team's take" — re-run with different avatars
+   - "Apply the recommendations" — begin implementation
+   - "I'm good" — end
+
 ## Synthesis Template
 
 ```
