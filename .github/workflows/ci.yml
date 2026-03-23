@@ -12,7 +12,7 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
-      monarch-cli: ${{ steps.filter.outputs.monarch-cli }}
+      copilot-money-cli: ${{ steps.filter.outputs.copilot-money-cli }}
       imdb-cli: ${{ steps.filter.outputs.imdb-cli }}
     steps:
       - uses: actions/checkout@v4
@@ -22,8 +22,8 @@ jobs:
         id: filter
         with:
           filters: |
-            monarch-cli:
-              - 'clis/monarch-cli/**'
+            copilot-money-cli:
+              - 'clis/copilot-money-cli/**'
               - 'pyproject.toml'
             imdb-cli:
               - 'clis/imdb-cli/**'
@@ -31,7 +31,7 @@ jobs:
 
   lint:
     needs: changes
-    if: needs.changes.outputs.monarch-cli == 'true'
+    if: needs.changes.outputs.copilot-money-cli == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -48,11 +48,11 @@ jobs:
         run: uv sync
 
       - name: Lint
-        run: uv run ruff check clis/monarch-cli/
+        run: uv run ruff check clis/copilot-money-cli/
 
   test:
     needs: changes
-    if: needs.changes.outputs.monarch-cli == 'true'
+    if: needs.changes.outputs.copilot-money-cli == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -69,11 +69,11 @@ jobs:
         run: uv sync
 
       - name: Test
-        run: uv run pytest clis/monarch-cli/ -q --tb=short
+        run: uv run pytest clis/copilot-money-cli/ -q --tb=short
 
   towncrier-check:
     needs: changes
-    if: needs.changes.outputs.monarch-cli == 'true' && github.event_name == 'pull_request'
+    if: needs.changes.outputs.copilot-money-cli == 'true' && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -93,9 +93,9 @@ jobs:
 
       - name: Check towncrier news fragment
         run: |
-          FRAGMENTS=$(git diff --name-only --diff-filter=A origin/${{ github.base_ref }}...HEAD -- 'clis/monarch-cli/newsfragments/*' | grep -v '.gitkeep' || true)
+          FRAGMENTS=$(git diff --name-only --diff-filter=A origin/${{ github.base_ref }}...HEAD -- 'clis/copilot-money-cli/newsfragments/*' | grep -v '.gitkeep' || true)
           if [ -z "$FRAGMENTS" ]; then
-            echo "::error::No new towncrier news fragment found. Add a file to clis/monarch-cli/newsfragments/ (e.g., 1.feature, 2.bugfix)"
+            echo "::error::No new towncrier news fragment found. Add a file to clis/copilot-money-cli/newsfragments/ (e.g., 1.feature, 2.bugfix)"
             exit 1
           fi
           echo "Found news fragments: $FRAGMENTS"
