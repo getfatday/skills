@@ -1,0 +1,26 @@
+{
+  "eval_name": "accounts-overview",
+  "configuration": "with_skill",
+  "expectations": [
+    {
+      "text": "has net worth",
+      "passed": true,
+      "evidence": "Net worth of $1,666,682.35 is prominently displayed in the heading and repeated in the asset allocation summary table."
+    },
+    {
+      "text": "has account table",
+      "passed": true,
+      "evidence": "Multiple markdown tables list every account with name, institution, and balance columns."
+    },
+    {
+      "text": "groups by type",
+      "passed": true,
+      "evidence": "Accounts are grouped under clear headings: Real Estate, Retirement & Investment Accounts, Liquid Accounts (Checking & Savings), Credit Cards (Liabilities), and Other."
+    },
+    {
+      "text": "proper currency formatting",
+      "passed": true,
+      "evidence": "All amounts use dollar signs with comma separators and two decimal places (e.g., $652,400.00, $307,355.32, -$16,322.33)."
+    }
+  ]
+}

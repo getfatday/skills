@@ -1,0 +1,26 @@
+{
+  "eval_name": "restaurant-transactions",
+  "configuration": "with_skill",
+  "expectations": [
+    {
+      "text": "only restaurants",
+      "passed": true,
+      "evidence": "All 20 transactions are filtered from the Restaurants category with no other categories mixed in. The response also helpfully flags that some merchant names (THEPETLADY, RISEPOLEVAULT, BREVILABS) may be miscategorized, which is good analysis rather than a filter failure."
+    },
+    {
+      "text": "only March 2026",
+      "passed": true,
+      "evidence": "All 20 transactions fall between Mar 2 and Mar 22, 2026. The title confirms 'March 2026'."
+    },
+    {
+      "text": "has table with date/name/amount",
+      "passed": true,
+      "evidence": "A markdown table includes Date, Merchant, Amount, Account, and Status columns for all 20 transactions."
+    },
+    {
+      "text": "has total",
+      "passed": true,
+      "evidence": "Total of $1,761.40 is displayed at the top, with a breakdown of cleared ($1,628.96) and pending ($132.44)."
+    }
+  ]
+}

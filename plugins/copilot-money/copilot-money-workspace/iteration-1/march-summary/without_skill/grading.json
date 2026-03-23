@@ -1,0 +1,26 @@
+{
+  "eval_name": "march-summary",
+  "configuration": "without_skill",
+  "expectations": [
+    {
+      "text": "has income and expenses",
+      "passed": true,
+      "evidence": "Total Income ($3,253.27) and Total Expenses ($55,626.47) are shown in the Earnings vs. Spending table."
+    },
+    {
+      "text": "has net figure",
+      "passed": true,
+      "evidence": "Net of -$52,373.20 is clearly stated in the summary table."
+    },
+    {
+      "text": "has savings rate or analysis",
+      "passed": false,
+      "evidence": "No savings rate is calculated or discussed. The response notes that Uncategorized and Other categories dominate spending but does not provide any savings rate, savings analysis, or commentary on the income-to-expense ratio beyond stating the raw numbers."
+    },
+    {
+      "text": "has top categories",
+      "passed": true,
+      "evidence": "A 'Top Spending Categories' table lists the top 10 categories ranked by amount, from Uncategorized ($24,568.29) to Internet ($123.33)."
+    }
+  ]
+}

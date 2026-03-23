@@ -1,0 +1,26 @@
+{
+  "eval_name": "accounts-overview",
+  "configuration": "without_skill",
+  "expectations": [
+    {
+      "text": "has net worth",
+      "passed": true,
+      "evidence": "Net worth of $1,666,682.35 is shown in the heading and in the Net Worth Breakdown summary table."
+    },
+    {
+      "text": "has account table",
+      "passed": true,
+      "evidence": "Markdown tables list accounts with name, institution, and balance for each category."
+    },
+    {
+      "text": "groups by type",
+      "passed": true,
+      "evidence": "Accounts are grouped under Real Estate, Investment Accounts, Depository Accounts (Cash), Credit Cards (Liabilities), and Other."
+    },
+    {
+      "text": "proper currency formatting",
+      "passed": true,
+      "evidence": "All amounts use dollar signs with comma separators and two decimal places (e.g., $652,400.00, -$13,141.76, $128,278.22)."
+    }
+  ]
+}

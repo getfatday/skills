@@ -1,0 +1,11 @@
+{
+  "eval_id": 3,
+  "eval_name": "march-summary",
+  "prompt": "give me a financial summary for march 2026 - how much did I earn vs spend?",
+  "assertions": [
+    {"text": "Response shows both income and expenses", "type": "contains_pattern"},
+    {"text": "Response shows net figure (income minus expenses)", "type": "contains_pattern"},
+    {"text": "Response includes savings rate or analysis of spending vs earning", "type": "analysis"},
+    {"text": "Response lists top spending categories", "type": "structural"}
+  ]
+}

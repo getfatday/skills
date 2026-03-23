@@ -1,0 +1,11 @@
+{
+  "eval_id": 1,
+  "eval_name": "accounts-overview",
+  "prompt": "show me my accounts and net worth",
+  "assertions": [
+    {"text": "Response includes a net worth figure", "type": "contains_pattern"},
+    {"text": "Response includes a table or list of accounts with balances", "type": "structural"},
+    {"text": "Accounts are organized by type (depository, credit, investment)", "type": "structural"},
+    {"text": "Dollar amounts use proper formatting ($X,XXX.XX)", "type": "format"}
+  ]
+}
