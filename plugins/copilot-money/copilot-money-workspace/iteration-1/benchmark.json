@@ -1,0 +1,105 @@
+{
+  "metadata": {
+    "skill_name": "copilot-money",
+    "skill_path": "/Users/ianderson/src/getfatday-skills/plugins/copilot-money/skills/personal-finance/SKILL.md",
+    "executor_model": "claude-opus-4-6",
+    "timestamp": "2026-03-23T03:30:00Z",
+    "evals_run": ["accounts-overview", "restaurant-transactions", "march-summary"],
+    "runs_per_configuration": 1
+  },
+  "runs": [
+    {
+      "eval_name": "accounts-overview",
+      "configuration": "with_skill",
+      "pass_rate": 1.0,
+      "time_seconds": 84.3,
+      "tokens": 16086,
+      "expectations": [
+        {"text": "Response includes a net worth figure", "passed": true, "evidence": "Shows Net Worth: $1,666,682.35"},
+        {"text": "Response includes a table or list of accounts with balances", "passed": true, "evidence": "Includes detailed asset breakdown table"},
+        {"text": "Accounts are organized by type", "passed": true, "evidence": "Grouped by Investments, Real Estate, Liquid, Credit Cards"},
+        {"text": "Dollar amounts use proper formatting", "passed": true, "evidence": "Uses $X,XXX.XX format throughout"}
+      ]
+    },
+    {
+      "eval_name": "accounts-overview",
+      "configuration": "without_skill",
+      "pass_rate": 1.0,
+      "time_seconds": 81.4,
+      "tokens": 13659,
+      "expectations": [
+        {"text": "Response includes a net worth figure", "passed": true, "evidence": "Shows Net Worth: $1,666,682.35"},
+        {"text": "Response includes a table or list of accounts with balances", "passed": true, "evidence": "Lists accounts with balances by type"},
+        {"text": "Accounts are organized by type", "passed": true, "evidence": "Grouped into Investments, Real Estate, Cash, Credit Cards"},
+        {"text": "Dollar amounts use proper formatting", "passed": true, "evidence": "Uses $X,XXX.XX format"}
+      ]
+    },
+    {
+      "eval_name": "restaurant-transactions",
+      "configuration": "with_skill",
+      "pass_rate": 1.0,
+      "time_seconds": 140.4,
+      "tokens": 17888,
+      "expectations": [
+        {"text": "Only shows restaurant-category transactions", "passed": true, "evidence": "All 20 transactions are restaurant-category"},
+        {"text": "Only shows March 2026 transactions", "passed": true, "evidence": "Date range Mar 2-22, 2026"},
+        {"text": "Response includes a table with date, name, amount", "passed": true, "evidence": "Full transaction table present"},
+        {"text": "Response includes a total spending amount", "passed": true, "evidence": "Total: $1,761.40"}
+      ]
+    },
+    {
+      "eval_name": "restaurant-transactions",
+      "configuration": "without_skill",
+      "pass_rate": 1.0,
+      "time_seconds": 213.4,
+      "tokens": 17786,
+      "expectations": [
+        {"text": "Only shows restaurant-category transactions", "passed": true, "evidence": "Filtered to restaurant transactions"},
+        {"text": "Only shows March 2026 transactions", "passed": true, "evidence": "March 2026 transactions shown"},
+        {"text": "Response includes a table with date, name, amount", "passed": true, "evidence": "Transaction table with columns"},
+        {"text": "Response includes a total spending amount", "passed": true, "evidence": "Total: $1,761.40"}
+      ]
+    },
+    {
+      "eval_name": "march-summary",
+      "configuration": "with_skill",
+      "pass_rate": 1.0,
+      "time_seconds": 166.1,
+      "tokens": 21121,
+      "expectations": [
+        {"text": "Response shows both income and expenses", "passed": true, "evidence": "Income: $3,253.27, Expenses: $55,626.47"},
+        {"text": "Response shows net figure", "passed": true, "evidence": "Net: -$52,373.20"},
+        {"text": "Response includes savings rate or analysis", "passed": true, "evidence": "Explains expenses are misleading (transfers), estimates actual day-to-day at ~$11K"},
+        {"text": "Response lists top spending categories", "passed": true, "evidence": "Breaks down Travel, Restaurants, Groceries, Phone/Internet, etc."}
+      ]
+    },
+    {
+      "eval_name": "march-summary",
+      "configuration": "without_skill",
+      "pass_rate": 0.75,
+      "time_seconds": 66.3,
+      "tokens": 11430,
+      "expectations": [
+        {"text": "Response shows both income and expenses", "passed": true, "evidence": "Income: $3,253.27, Expenses: $55,626.47"},
+        {"text": "Response shows net figure", "passed": true, "evidence": "Net: -$52,373.20"},
+        {"text": "Response includes savings rate or analysis", "passed": false, "evidence": "No savings rate, no analysis of why numbers are misleading, just raw data"},
+        {"text": "Response lists top spending categories", "passed": true, "evidence": "Lists Uncategorized, Other, Travel & Vacation"}
+      ]
+    }
+  ],
+  "run_summary": {
+    "with_skill": {"pass_rate": 1.0, "mean_time": 130.3, "mean_tokens": 18365},
+    "without_skill": {"pass_rate": 0.917, "mean_time": 120.4, "mean_tokens": 14292},
+    "delta": {
+      "pass_rate": "+0.083",
+      "time_seconds": "+9.9",
+      "tokens": "+4073"
+    }
+  },
+  "notes": [
+    "The skill adds meaningful financial analysis (savings rate, transfer identification, miscategorization flags) that the baseline misses",
+    "The skill uses ~28% more tokens but produces richer output with actionable insights",
+    "Bug found and fixed: --category filter was matching only the first category ID when duplicate names exist",
+    "Both configurations successfully called the CLI and presented formatted results"
+  ]
+}

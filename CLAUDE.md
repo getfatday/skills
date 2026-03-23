@@ -70,9 +70,9 @@ Each CLI maintains its own `CHANGELOG.md` via towncrier. PRs that change a CLI m
 
 ## CLIs
 
-### monarch-cli
-Personal finance CLI wrapping the Monarch Money API.
-Command: `gfd-monarch`
+### copilot-money-cli
+Personal finance CLI reading local Copilot Money cache (LevelDB/Firestore). No API needed.
+Command: `gfd-copilot-money`
 
 ### imdb-cli
 IMDB movie and TV data CLI using Cinemagoer.
@@ -80,9 +80,9 @@ Command: `gfd-imdb`
 
 ## Plugins
 
-### monarch
-Personal finance data access. Wraps `gfd-monarch` CLI.
-Commands: `/monarch`, `/monarch:transactions`, `/monarch:budget`, `/monarch:cashflow`, `/monarch:status`
+### copilot-money
+Personal finance data access. Wraps `gfd-copilot-money` CLI.
+Commands: `/copilot-money`, `/copilot-money:transactions`, `/copilot-money:budget`, `/copilot-money:summary`, `/copilot-money:status`
 
 ### imdb
 IMDB movie and TV data. Wraps `gfd-imdb` CLI.

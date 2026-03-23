@@ -1,0 +1,7 @@
+{
+  "name": "copilot-money",
+  "description": "Personal finance data from Copilot Money. Check account balances, search transactions, view budget vs actuals, track spending patterns, and analyze cash flow. Commands: /copilot-money, /copilot-money:transactions, /copilot-money:budget, /copilot-money:summary, /copilot-money:status",
+  "version": "0.1.0",
+  "author": { "name": "getfatday" },
+  "keywords": ["finance", "copilot-money", "budgets", "transactions", "personal-finance", "spending"]
+}

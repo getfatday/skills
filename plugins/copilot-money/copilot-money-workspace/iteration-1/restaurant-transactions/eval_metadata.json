@@ -1,0 +1,11 @@
+{
+  "eval_id": 2,
+  "eval_name": "restaurant-transactions",
+  "prompt": "what did I spend on restaurants this month? show me the transactions",
+  "assertions": [
+    {"text": "Only shows restaurant-category transactions", "type": "filter"},
+    {"text": "Only shows March 2026 transactions", "type": "filter"},
+    {"text": "Response includes a table with date, name, amount", "type": "structural"},
+    {"text": "Response includes a total spending amount", "type": "contains_pattern"}
+  ]
+}

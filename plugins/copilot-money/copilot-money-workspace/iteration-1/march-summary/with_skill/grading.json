@@ -1,0 +1,26 @@
+{
+  "eval_name": "march-summary",
+  "configuration": "with_skill",
+  "expectations": [
+    {
+      "text": "has income and expenses",
+      "passed": true,
+      "evidence": "Total Income ($3,253.27) and Total Expenses ($55,626.47) are shown in the opening table and broken down in detail throughout."
+    },
+    {
+      "text": "has net figure",
+      "passed": true,
+      "evidence": "Net Cash Flow of -$52,373.20 is clearly stated in the summary table."
+    },
+    {
+      "text": "has savings rate or analysis",
+      "passed": true,
+      "evidence": "A dedicated 'Savings Rate' section discusses the -1,609% headline rate and provides thoughtful analysis explaining why it is misleading due to large transfers being counted as expenses and likely incomplete income data."
+    },
+    {
+      "text": "has top categories",
+      "passed": true,
+      "evidence": "A detailed 'Day-to-Day Spending Breakdown' table lists 13 categories ranked by amount, from Travel & Vacation ($7,061) down to Car ($15.30), with notes for each."
+    }
+  ]
+}

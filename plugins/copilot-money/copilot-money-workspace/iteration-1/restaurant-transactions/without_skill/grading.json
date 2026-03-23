@@ -1,0 +1,26 @@
+{
+  "eval_name": "restaurant-transactions",
+  "configuration": "without_skill",
+  "expectations": [
+    {
+      "text": "only restaurants",
+      "passed": true,
+      "evidence": "All 20 transactions are from the Restaurants category. No non-restaurant categories are mixed in."
+    },
+    {
+      "text": "only March 2026",
+      "passed": true,
+      "evidence": "All transactions fall between 2026-03-02 and 2026-03-22. The heading confirms 'March 2026'."
+    },
+    {
+      "text": "has table with date/name/amount",
+      "passed": true,
+      "evidence": "A markdown table includes Date, Description, Amount, Account, and Pending columns for all 20 transactions."
+    },
+    {
+      "text": "has total",
+      "passed": true,
+      "evidence": "Total spent of $1,761.40 is clearly stated in the summary section along with transaction count and average."
+    }
+  ]
+}

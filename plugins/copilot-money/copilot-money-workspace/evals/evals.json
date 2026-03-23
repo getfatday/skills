@@ -1,0 +1,23 @@
+{
+  "skill_name": "copilot-money",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "show me my accounts and net worth",
+      "expected_output": "Should show accounts grouped by type with balances and a net worth headline",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "what did I spend on restaurants this month? show me the transactions",
+      "expected_output": "Should filter transactions by category 'Restaurants' for March 2026 and show a table",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "give me a financial summary for march 2026 - how much did I earn vs spend?",
+      "expected_output": "Should show income, expenses, net, savings rate, and top spending categories for March 2026",
+      "files": []
+    }
+  ]
+}

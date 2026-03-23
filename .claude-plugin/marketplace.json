@@ -4,14 +4,6 @@
   "metadata": { "description": "Personal Claude Code plugins and supporting CLIs" },
   "plugins": [
     {
-      "name": "monarch",
-      "source": "./plugins/monarch",
-      "description": "Personal finance data from Monarch Money. Check account balances, search transactions, view budget vs actuals, and track cash flow trends. Commands: /monarch, /monarch:transactions, /monarch:budget, /monarch:cashflow, /monarch:status",
-      "author": { "name": "getfatday" },
-      "category": "personal-finance",
-      "keywords": ["finance", "monarch", "budgets", "transactions"]
-    },
-    {
       "name": "imdb",
       "source": "./plugins/imdb",
       "description": "IMDB movie and TV data. Search films, look up cast and box office, browse Top 250 movies/shows, and check upcoming releases. Commands: /imdb, /imdb:movie, /imdb:person, /imdb:top",
@@ -34,6 +26,14 @@
       "author": { "name": "getfatday" },
       "category": "meta-skills",
       "keywords": ["document", "type-system", "meta-skill", "skill-generator", "lifecycle"]
+    },
+    {
+      "name": "copilot-money",
+      "source": "./plugins/copilot-money",
+      "description": "Personal finance data from Copilot Money. Check account balances, search transactions, view budget vs actuals, track spending patterns, and analyze cash flow. Commands: /copilot-money, /copilot-money:transactions, /copilot-money:budget, /copilot-money:summary, /copilot-money:status",
+      "author": { "name": "getfatday" },
+      "category": "personal-finance",
+      "keywords": ["finance", "copilot-money", "budgets", "transactions", "spending"]
     }
   ]
 }
