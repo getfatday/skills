@@ -14,7 +14,7 @@ Wire types:
 from __future__ import annotations
 
 import struct
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 
@@ -85,7 +85,7 @@ def _decode_timestamp(buf: bytes, pos: int, end: int) -> str:
         else:
             pos = skip_field(buf, pos, wire_type)
     try:
-        dt = datetime.fromtimestamp(seconds, tz=timezone.utc)
+        dt = datetime.fromtimestamp(seconds, tz=UTC)
         if nanos:
             dt = dt.replace(microsecond=nanos // 1000)
         return dt.isoformat()

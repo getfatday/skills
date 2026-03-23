@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import click
 
-from gfd_copilot_money_cli.output import detect_format, render, error
+from gfd_copilot_money_cli.output import detect_format, error, render
 
 
 @click.command()
@@ -14,7 +14,7 @@ from gfd_copilot_money_cli.output import detect_format, render, error
 @click.option("--account", default=None, help="Filter by account name (substring match).")
 @click.option("--min", "min_amount", type=float, default=None, help="Minimum amount.")
 @click.option("--max", "max_amount", type=float, default=None, help="Maximum amount.")
-@click.option("--exclude-transfers", is_flag=True, default=False, help="Exclude internal transfers.")
+@click.option("--exclude-transfers", is_flag=True, default=False, help="Exclude transfers.")
 @click.option("--format", "fmt", type=click.Choice(["table", "json", "csv"]), default=None)
 def transactions(
     start_date: str | None,
@@ -29,7 +29,7 @@ def transactions(
     """List transactions with optional filters."""
     fmt = detect_format(fmt)
     try:
-        from gfd_copilot_money_cli.core.store import get_transactions, get_categories, get_accounts
+        from gfd_copilot_money_cli.core.store import get_accounts, get_categories, get_transactions
 
         # Build lookup maps for name-based filtering
         account_id: str | None = None

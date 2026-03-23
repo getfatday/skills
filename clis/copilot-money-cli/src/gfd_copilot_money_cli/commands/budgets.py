@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import click
 
-from gfd_copilot_money_cli.output import detect_format, render, error
+from gfd_copilot_money_cli.output import detect_format, error, render
 
 
 @click.command()
@@ -50,7 +50,9 @@ def budgets(month: str | None, fmt: str | None) -> None:
             "category": cat_name,
             "budgeted": f"${abs(b.amount):,.2f}",
             "spent": f"${abs(spent):,.2f}",
-            "remaining": f"${abs(remaining):,.2f}" if remaining >= 0 else f"-${abs(remaining):,.2f}",
+            "remaining": f"${abs(remaining):,.2f}"
+            if remaining >= 0
+            else f"-${abs(remaining):,.2f}",
         })
 
     render(rows, fmt, headers=["category", "budgeted", "spent", "remaining"])

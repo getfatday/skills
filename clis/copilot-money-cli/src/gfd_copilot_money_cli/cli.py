@@ -5,13 +5,13 @@ from __future__ import annotations
 import click
 
 from gfd_copilot_money_cli import __version__
-from gfd_copilot_money_cli.commands.status import status
 from gfd_copilot_money_cli.commands.accounts import accounts
-from gfd_copilot_money_cli.commands.transactions import transactions
-from gfd_copilot_money_cli.commands.categories import categories
 from gfd_copilot_money_cli.commands.budgets import budgets
+from gfd_copilot_money_cli.commands.categories import categories
 from gfd_copilot_money_cli.commands.recurring import recurring
+from gfd_copilot_money_cli.commands.status import status
 from gfd_copilot_money_cli.commands.summary import summary
+from gfd_copilot_money_cli.commands.transactions import transactions
 
 
 @click.group(invoke_without_command=True)

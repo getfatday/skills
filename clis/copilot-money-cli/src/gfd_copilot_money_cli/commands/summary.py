@@ -6,7 +6,7 @@ from collections import defaultdict
 
 import click
 
-from gfd_copilot_money_cli.output import detect_format, render_single, render, error
+from gfd_copilot_money_cli.output import detect_format, error, render, render_single
 
 
 @click.command()
@@ -35,7 +35,7 @@ def summary(
             end_date = f"{year}-{m + 1:02d}-01"
 
     try:
-        from gfd_copilot_money_cli.core.store import get_transactions, get_accounts, get_categories
+        from gfd_copilot_money_cli.core.store import get_accounts, get_categories, get_transactions
 
         txns = get_transactions(start_date=start_date, end_date=end_date)
         accts = get_accounts()
@@ -78,7 +78,10 @@ def summary(
         top_cats = sorted(spending_by_cat.items(), key=lambda x: x[1], reverse=True)[:10]
         json_data = {
             **data,
-            "top_categories": [{"category": name, "amount": f"${amt:,.2f}"} for name, amt in top_cats],
+            "top_categories": [
+                {"category": name, "amount": f"${amt:,.2f}"}
+                for name, amt in top_cats
+            ],
         }
         click.echo(json.dumps(json_data, indent=2, default=str))
     else:

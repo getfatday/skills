@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import click
 
-from gfd_copilot_money_cli.output import detect_format, render, error
+from gfd_copilot_money_cli.output import detect_format, error, render
 
 
 @click.command()

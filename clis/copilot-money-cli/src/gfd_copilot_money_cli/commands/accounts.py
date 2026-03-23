@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import click
 
-from gfd_copilot_money_cli.output import detect_format, render, error
+from gfd_copilot_money_cli.output import detect_format, error, render
 
 
 @click.command()
-@click.option("--type", "account_type", default=None, help="Filter by account type (checking, savings, credit, etc.).")
+@click.option("--type", "account_type", default=None, help="Filter by type.")
 @click.option("--format", "fmt", type=click.Choice(["table", "json", "csv"]), default=None)
 def accounts(account_type: str | None, fmt: str | None) -> None:
     """List accounts with balances."""

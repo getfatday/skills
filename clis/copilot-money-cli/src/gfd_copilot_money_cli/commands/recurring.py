@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import click
 
-from gfd_copilot_money_cli.output import detect_format, render, error
+from gfd_copilot_money_cli.output import detect_format, error, render
 
 
 @click.command()
@@ -13,7 +13,7 @@ def recurring(fmt: str | None) -> None:
     """List recurring transactions."""
     fmt = detect_format(fmt)
     try:
-        from gfd_copilot_money_cli.core.store import get_recurring, get_accounts
+        from gfd_copilot_money_cli.core.store import get_accounts, get_recurring
 
         items = get_recurring()
         accts = get_accounts()
