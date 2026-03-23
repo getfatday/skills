@@ -5,7 +5,6 @@ from __future__ import annotations
 import struct
 
 import pytest
-
 from gfd_copilot_money_cli.core.proto import (
     decode_document,
     decode_tag,
@@ -13,7 +12,6 @@ from gfd_copilot_money_cli.core.proto import (
     decode_varint,
     skip_field,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers — build protobuf wire-format bytes

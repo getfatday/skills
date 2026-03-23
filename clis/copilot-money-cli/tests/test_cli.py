@@ -6,13 +6,9 @@ import json
 import os
 import shutil
 import subprocess
-import sys
 
-import pytest
 from click.testing import CliRunner
-
 from gfd_copilot_money_cli.cli import cli
-
 
 # ---------------------------------------------------------------------------
 # Helpers
