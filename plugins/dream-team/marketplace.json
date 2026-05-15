@@ -17,7 +17,9 @@
     { "name": "avatar-martin-fowler", "expert": "Martin Fowler", "domains": ["engineering", "software-design", "software-architecture", "refactoring", "microservices"] },
     { "name": "avatar-lisa-crispin", "expert": "Lisa Crispin", "domains": ["testing", "qa-strategy", "test-automation", "engineering"] },
     { "name": "avatar-don-norman", "expert": "Don Norman", "domains": ["ux-design", "human-centered-design", "usability", "interaction-design"] },
-    { "name": "avatar-daniele-procida", "expert": "Daniele Procida", "domains": ["technical-writing", "documentation", "developer-experience"] }
+    { "name": "avatar-daniele-procida", "expert": "Daniele Procida", "domains": ["technical-writing", "documentation", "developer-experience"] },
+    { "name": "avatar-antonio-nieto-rodriguez", "expert": "Antonio Nieto-Rodriguez", "domains": ["program-management", "strategic-portfolio", "benefits-realization", "project-leadership"] },
+    { "name": "avatar-joshua-teter", "expert": "Joshua Teter", "domains": ["technical-program-management", "cross-functional-delivery", "stakeholder-management", "risk-management"] }
   ],
   "teams": [
     { "name": "team-engineering", "domains": ["engineering", "tdd", "software-design"], "members": ["avatar-kent-beck", "avatar-robert-martin", "avatar-eric-evans", "avatar-martin-fowler", "avatar-lisa-crispin"] },

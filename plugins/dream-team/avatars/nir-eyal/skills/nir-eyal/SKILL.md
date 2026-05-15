@@ -4,6 +4,7 @@ description: >
   Nir Eyal's behavioral design — Hook Model, habit formation, variable rewards,
   ethical engagement, Manipulation Matrix, Regret Test.
 user-invocable: false
+targets: ["*"]
 ---
 
 # Nir Eyal

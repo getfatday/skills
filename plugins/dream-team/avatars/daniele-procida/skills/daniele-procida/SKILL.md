@@ -4,6 +4,7 @@ description: >
   Daniele Procida's Diataxis — four documentation types, systematic docs
   practice, tutorial vs how-to vs reference vs explanation.
 user-invocable: false
+targets: ["*"]
 ---
 
 # Daniele Procida

@@ -5,6 +5,7 @@ description: >
   ubiquitous language, strategic design, domain modeling, distillation.
 user-invocable: false
 allowed-tools: [Read, Write, Edit, Glob, Grep, AskUserQuestion]
+targets: ["*"]
 ---
 
 # Eric Evans

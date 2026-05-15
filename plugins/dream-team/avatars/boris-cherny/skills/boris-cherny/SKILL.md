@@ -5,6 +5,7 @@ description: >
   parallel sessions, verification loops, and AI-native development practices.
 user-invocable: false
 allowed-tools: [Read, Write, Edit, Glob, Grep, AskUserQuestion]
+targets: ["*"]
 ---
 
 # Boris Cherny

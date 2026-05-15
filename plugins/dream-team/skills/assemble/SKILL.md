@@ -11,6 +11,7 @@ allowed-tools:
   - Agent
   - TeamCreate
   - SendMessage
+targets: ["*"]
 ---
 
 Trigger: `/assemble` or "help me with X" or "I need engineering and product review"

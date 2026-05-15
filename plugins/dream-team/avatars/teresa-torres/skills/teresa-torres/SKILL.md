@@ -4,6 +4,7 @@ description: >
   Teresa Torres' continuous discovery — OST, assumption testing,
   compare-and-contrast, weekly customer touchpoints, product trio.
 user-invocable: false
+targets: ["*"]
 ---
 
 # Teresa Torres
