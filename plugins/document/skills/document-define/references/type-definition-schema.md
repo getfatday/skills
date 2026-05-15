@@ -27,6 +27,22 @@ Type definitions live at `.config/documents/types/{name}.md` in the consuming pr
 
 Field types: string, date (YYYY-MM-DD), enum({values}), link (markdown link), links (markdown links list), boolean, number
 
+### Reserved Optional Fields
+
+Every type may carry these optional fields without declaring them in its
+own `### Optional` list. They're supported by the plugin's generic
+machinery (`document-enrich`, `document-verify-inferred`,
+`document-lint`):
+
+- `inferred: boolean` — set to `true` by any scanner that populates one
+  or more fields by inference rather than direct user input. Stripped
+  when a human confirms the values via `/document:verify-inferred`.
+  `document-lint` flags any `inferred: true` older than 30 days as
+  stale. Because the marker doesn't say WHICH fields were inferred,
+  confirmation is a blanket statement ("a human endorsed this
+  document"); scanners that want granular recording should also append
+  a `## History` entry.
+
 ## Sections
 
 ### Required
@@ -49,6 +65,24 @@ Omit this section entirely if the type has no relationships.
   - {from} -> {to}
 
 Omit this section if the type has no lifecycle (e.g., meeting notes are informational with no status transitions). When present, the status field must be declared in Fields.
+
+## Lifecycle Hooks (optional)
+
+### Guards
+- {from} -> {to}: {condition} | "{failure message}"
+- {from} -> {to}: skill: {skill-name} {args}
+
+### Actions
+- {from} -> {to}: {description}
+  - skill: {skill-name} {args}
+- * -> {to}: {description}
+  - skill: {skill-name} {args}
+
+### Notifications
+- {from} -> {to}: {description}
+- * -> {to}: {description}
+
+Must appear after ## Lifecycle. Omit entirely if no hooks are needed.
 
 ## Creation
 - mode: {template|conversational|reverse}
@@ -93,6 +127,26 @@ When a facet is inline, the section content lives in the hub document. When extr
 
 When a type appears in both a parent's Facets table AND its Collections table, the Facets path takes precedence for that specific relationship.
 ```
+
+### Lifecycle Hooks details
+
+**Guards** validate whether a transition should happen. Run BEFORE the status change. If any guard fails, the transition is rejected and the document is not modified. Two forms:
+
+- **Inline:** `{from} -> {to}: {condition} | "{failure message}"` — a human-readable condition that Claude evaluates by reading the document. Keep conditions simple and verifiable: field presence, section completeness, state checks.
+- **Skill reference:** `{from} -> {to}: skill: {skill-name} {args}` — delegates complex validation to a skill. The skill returns pass/fail.
+
+Guards are boolean. They validate preconditions. They return pass/fail with a message. They never prompt the user — user confirmation belongs in the transition caller.
+
+**Actions** are side effects that run AFTER a successful transition. If an action fails, the transition stands — the status is already updated. Failed actions are reported but not rolled back. Actions always reference a skill — they're operations, not inline logic.
+
+**Notifications** are lightweight actions that inform other people or systems. Always fire, never block. If a notification fails, it's silently logged — it never affects the transition.
+
+**Format rules:**
+
+- **Wildcards:** `*` matches any source state for a given target (e.g., `* -> abandoned`). Specific transitions take precedence over wildcards when both match.
+- **Declaration order:** Guards and actions run in the order declared. For guards, the first failure stops evaluation. For actions, all are attempted even if one fails.
+- **Parent composition:** When a type is hosted by multiple parents, parent hooks layer on top of the type's own hooks. Guards: all must pass (type first, then parent). Actions: run in declaration order (type first, then parent).
+- **Declarations are checklists, not programs.** No conditionals, loops, or orchestration inline. Complex logic references a skill by name.
 
 ## Example: Brand Type Definition
 
@@ -258,6 +312,22 @@ When a type appears in both a parent's Facets table AND its Collections table, t
   - review -> approved — stakeholders approve
   - approved -> shipped — feature shipped
 
+## Lifecycle Hooks
+
+### Guards
+- draft -> review: required sections are not empty | "Fill in all required sections before requesting review."
+- review -> approved: skill: peer-review check
+
+### Actions
+- review -> approved: create user stories from ## User Stories section
+  - skill: user-story batch-create
+- approved -> shipped: update parent product roadmap
+  - skill: product update-roadmap
+
+### Notifications
+- draft -> review: notify product owner
+- review -> approved: notify engineering lead
+
 ## Creation
 - mode: conversational
 - conversational-phases:
@@ -272,8 +342,16 @@ When a type appears in both a parent's Facets table AND its Collections table, t
 
 ## Path Conventions
 
-- Directory names follow the project's conventions (typically kebab-case or PascalCase as configured in root.md Conventions).
-- Path patterns use `{field-name}` placeholders that resolve to the document's frontmatter values.
+- Directory and file names follow the project's naming convention as set in root.md's `## Conventions` section.
+- The `naming-convention` field in root.md controls how document names become file/directory names:
+  - `Title Case` (default) — "My Document" → `My Document/` or `My Document.md`
+  - `kebab-case` — "My Document" → `my-document/` or `my-document.md`
+  - `snake_case` — "My Document" → `my_document/` or `my_document.md`
+  - `PascalCase` — "My Document" → `MyDocument/` or `MyDocument.md`
+  - `camelCase` — "My Document" → `myDocument/` or `myDocument.md`
+- When no `naming-convention` is configured in root.md, default to **Title Case**.
+- Individual type definitions can override the project default by including `naming-convention` in their `## Identity` section.
+- Path patterns use `{field-name}` placeholders that resolve to the document's frontmatter values, transformed by the naming convention.
 - Compound keys (e.g., `{category}/{name}`) use multiple fields from the document's frontmatter to build the path. Each placeholder maps to one field.
 - The Key column in Collections tables identifies which field(s) generate the filename. For compound paths, use hyphenated field names (e.g., `category-name` means fields `category` and `name`).
 
@@ -286,3 +364,7 @@ When a type appears in both a parent's Facets table AND its Collections table, t
 5. **Relationship declarations are one-sided.** Each type declares what it links TO. `linked-from` is informational, not enforced.
 6. **Types can live in multiple places.** The same type definition can be hosted by different parents. Each instance lives at the path declared by its hosting parent. The type definition is reusable across hosts.
 7. **Location flows top-down.** Root type → Collections → child types → their Collections. No type declares its own location. No child references its parent.
+
+## Custom Logic Sidecar
+
+Types can extend their generated skill by adding a `{name}.skill.md` sidecar file. See `custom-logic-schema.md` for the format and splice rules. The sidecar lets you declare extra operations and add pre/post hooks to default operations. Generation always re-reads the sidecar fresh.

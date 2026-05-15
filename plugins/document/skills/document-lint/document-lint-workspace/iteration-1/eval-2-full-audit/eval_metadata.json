@@ -1,0 +1,32 @@
+{
+  "eval_id": 2,
+  "eval_name": "full-portfolio-audit",
+  "prompt": "Run a full document lint on the portfolio. I want to see everything — type issues, missing links, orphans, the works.",
+  "assertions": [
+    {
+      "id": "runs-all-three-checks",
+      "description": "Report covers type drift, unlinked people references, and orphaned documents",
+      "check": "output contains sections or findings for all three check categories"
+    },
+    {
+      "id": "finds-type-drift",
+      "description": "Identifies the Milestone Map research mistype and other type-content mismatches",
+      "check": "output flags at least the 10 Milestone Map files as mistyped"
+    },
+    {
+      "id": "finds-unlinked-people",
+      "description": "Detects plain-text people references that should be markdown links",
+      "check": "output identifies unlinked people references with counts and proposes link syntax fixes"
+    },
+    {
+      "id": "finds-orphans",
+      "description": "Identifies documents not referenced from any index.md",
+      "check": "output reports orphaned files and identifies root causes (e.g. missing Initiatives/index.md)"
+    },
+    {
+      "id": "produces-structured-report",
+      "description": "Output follows the structured report format with Fixed/Needs Review sections",
+      "check": "output contains a summary table or structured report with actionable fix categories"
+    }
+  ]
+}

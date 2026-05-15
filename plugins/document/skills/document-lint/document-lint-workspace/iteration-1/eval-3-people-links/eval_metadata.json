@@ -1,0 +1,32 @@
+{
+  "eval_id": 3,
+  "eval_name": "scoped-people-link-fix",
+  "prompt": "Can you check the Functional Areas for any people references that should be linked? I think the engineering_leader fields are all just plain text names.",
+  "assertions": [
+    {
+      "id": "scopes-to-functional-areas",
+      "description": "Respects the user's scope constraint to Functional Areas only",
+      "check": "output focuses on Functional Areas directory, does not audit Strategies/ or other top-level dirs"
+    },
+    {
+      "id": "finds-engineering-leader-fields",
+      "description": "Identifies the ~35 engineering_leader fields with plain-text names",
+      "check": "output lists at least 25 engineering_leader fields as unlinked"
+    },
+    {
+      "id": "resolves-existing-people",
+      "description": "For people who already have People files, proposes markdown link with correct relative path",
+      "check": "output shows correct relative path syntax (e.g. ../../People/ianderson.md) for known people"
+    },
+    {
+      "id": "handles-new-people",
+      "description": "For people without People files, proposes creating them or flags as needing creation",
+      "check": "output identifies people needing new People files and suggests userid-based filenames"
+    },
+    {
+      "id": "catches-data-quality-issues",
+      "description": "Detects data quality problems like double-space typo, GAP placeholder, (Interim) annotation",
+      "check": "output flags at least 2 of: double-space typo in Sruthi Samraj, GAP vacancy marker, Neena Ballard (Interim)"
+    }
+  ]
+}
