@@ -16,6 +16,7 @@ trigger-phrases:
   - "add a document type"
   - "define a type"
 allowed-tools: [Read, Write, Edit, Bash, Glob, Grep, AskUserQuestion]
+targets: ["*"]
 ---
 
 # document-define
@@ -66,8 +67,21 @@ document tree.
 - root-location: {path to root document instance, e.g., ./index.md}
 
 ## Conventions
-- {project-level conventions}
+- naming-convention: Title Case
 ```
+
+### Naming Convention
+
+The `naming-convention` field controls how document names become file and
+directory names. Supported values: `Title Case` (default), `kebab-case`,
+`snake_case`, `PascalCase`, `camelCase`. When not set, default to
+**Title Case**. Individual type definitions can override by adding
+`naming-convention` to their `## Identity` section.
+
+When resolving paths for document creation, apply the naming convention to
+transform the document's name/title field into the filename or directory
+name. For example, with `kebab-case`, a document titled "My Feature" would
+be created at `my-feature.md` or `my-feature/index.md`.
 
 ### Path Resolution
 The root type is itself a type definition with a `## Collections` table.
@@ -99,11 +113,51 @@ the project directory.
 <define_operation>
 **Inputs:** type name (optional — can be discovered through conversation)
 
+**Optional integration:** if the `dream-team` plugin is installed, step 1a
+offers an avatar consult that can propose starter fields / sections /
+lifecycle based on the type's purpose. It's purely additive — the skill
+works identically when the plugin is absent.
+
 **Steps:**
 
 1. **Identify the document type.** Ask via AskUserQuestion:
    - What kind of document is this? (name and display name)
    - One-line description
+
+1a. **(Optional) Dream-team consult.** After identity is captured,
+   offer the user a quick avatar consult to expand the type's fields
+   and sections before formalizing them. This step is OPTIONAL and
+   requires the `dream-team` plugin. If the plugin is not installed
+   (no `/dream-team:consult` command discoverable), skip silently and
+   proceed to step 2.
+
+   If available, prompt:
+   - "Want to consult the dream-team on this type's fields / sections /
+     lifecycle before writing it? (Yes / No)"
+   - If Yes: pick 2–4 relevant avatars. Either ask the user to choose
+     or auto-select based on the type's purpose:
+     - Work / engineering-adjacent types → engineering, management, operations
+     - Product / planning types → product, management, operations
+     - Personal-ops / knowledge types → personal-finance, growth, operations
+     - Mixed / general → ask the user to pick
+   - Invoke `/dream-team:consult` with:
+     - `question: "Design the fields, sections, and lifecycle for a
+       {display} document type. What must it carry? What relationships
+       does it have? What lifecycle states?"`
+     - `avatars: [selected list]`
+     - Pattern: `map-reduce` (each avatar answers independently; a
+       synthesis pass merges)
+   - Synthesize the response into a proposed fields + sections +
+     lifecycle spec. Present to the user as a draft.
+   - Ask: "Accept these as starting fields/sections? (Accept all /
+     Pick & choose / Start from scratch)"
+   - Fold the accepted items into the conversational state so steps
+     2-6 treat them as user-confirmed.
+
+   The consult is conversational, not a contract — the user can edit
+   or override anything. If `/dream-team:consult` errors or times out,
+   fall back to the standard conversational flow and report the
+   failure without blocking.
 
 2. **Fields.** Ask:
    - What information goes in the frontmatter?
@@ -177,15 +231,26 @@ the project directory.
 1. **Read the type definition.** Find at `.config/documents/types/{name}.md`.
    Parse all sections.
 
-2. **Resolve location.** Read `.config/documents/root.md` to find the
-   root type. Read the root type's `## Collections` table. If this type
-   is listed, use that path pattern. If not, search all type definitions'
-   Collections and Facets tables to find which parent hosts it. If no
-   parent hosts it, fall back to `./{DisplayName}/`.
+2. **Check for custom logic sidecar.** Look for `.config/documents/types/{name}.skill.md`. If present, parse per `references/custom-logic-schema.md`:
+   - Parse `## Operations` H2 and its H3 children as extra operations.
+   - Parse `## Hooks` H2 and its H3 children as `pre-{op}` / `post-{op}` hooks.
+   - Validate per the spec's Error Cases. Abort generation on any error (unknown H2 warns only).
+   - Hold the parsed sidecar for use in step 5 (SKILL.md generation) and step 7 (command file).
+   If no sidecar exists, proceed with default generation. This is not an error.
 
-3. **Create skill directory.** `.claude/skills/{name}/`
+3. **Resolve location and naming convention.** Read `.config/documents/root.md`
+   to find the root type and the `naming-convention` from `## Conventions`
+   (default: `Title Case`). Check if the type definition overrides the
+   convention in its `## Identity` section. Read the root type's
+   `## Collections` table. If this type is listed, use that path pattern.
+   If not, search all type definitions' Collections and Facets tables to
+   find which parent hosts it. If no parent hosts it, fall back to
+   `./{DisplayName}/`. Apply the naming convention when resolving
+   `{field-name}` placeholders in path patterns.
 
-4. **Generate SKILL.md.** The generated skill file contains:
+4. **Create skill directory.** `.claude/skills/{name}/`
+
+5. **Generate SKILL.md.** The generated skill file contains:
 
    ```markdown
    ---
@@ -194,7 +259,7 @@ the project directory.
      Manages {display} documents. Handles creation, retrieval, listing,
      validation, and lifecycle transitions.
    generated-by: document-define
-   generator-version: "1.2"
+   generator-version: "1.3"
    type-definition: ".config/documents/types/{name}.md"
    materialized: "{today}"
    user-invocable: false
@@ -211,7 +276,38 @@ the project directory.
    - Required/optional frontmatter from Fields
    - Required/optional sections from Sections
 
-   **c. Operations section** with these operations:
+   **c. Lifecycle hooks section** — (only for types with `## Lifecycle Hooks`).
+   Generate a LIFECYCLE HOOKS section in the skill listing guards, actions,
+   and notifications per transition. Expand wildcards: if the type definition
+   declares `* -> abandoned` and the transitions list includes `active -> abandoned`
+   and `paused -> abandoned`, emit both specific transitions in the generated
+   hooks table. Specific transitions from the type definition take precedence
+   over wildcards when both match the same from/to pair.
+
+   Format in the generated skill:
+
+   ```markdown
+   ## Lifecycle Hooks
+
+   ### Guards
+   | Transition | Condition | On Failure |
+   |------------|-----------|------------|
+   | active -> completed | all steps done or skipped | "Not all steps are complete." |
+   | active -> completed | skill: branch-engine codeowners-check | (skill reports reason) |
+
+   ### Actions
+   | Transition | Description | Skill |
+   |------------|-------------|-------|
+   | draft -> active | create git branch and draft PR | branch-engine create-worktree |
+
+   ### Notifications
+   | Transition | Description |
+   |------------|-------------|
+   | active -> completed | update parent initiative progress |
+   | paused -> completed | update parent initiative progress |
+   ```
+
+   **d. Operations section** with these operations:
 
    - **store** — Store a document with pre-built content. This is the
      primary creation path when an expert agent (dream-team avatar or
@@ -285,15 +381,34 @@ the project directory.
      - Always produce output.
 
    - **update-status** — Transition a document's lifecycle status.
-     - Validate the transition against the ALLOWED TRANSITIONS table.
-       ONLY listed transitions are permitted. ALL others MUST be rejected.
-       Statuses with no outbound transitions are terminal states.
-     - If transition is NOT in the allowed list: respond with the error
-       message and DO NOT modify the file. Return immediately.
-     - ONLY if transition is valid: update the status field.
-     - Report the transition: "{name}: {old} -> {new}"
-     - If transition is invalid: "Invalid transition: {current} -> {new}.
-       Allowed transitions from {current}: {list}."
+     1. Read current status from frontmatter.
+     2. Validate the transition against the ALLOWED TRANSITIONS table.
+        ONLY listed transitions are permitted. ALL others MUST be rejected.
+        Statuses with no outbound transitions are terminal states.
+        If transition is NOT in the allowed list: respond with
+        "Invalid transition: {current} -> {new}. Allowed transitions
+        from {current}: {list}." and DO NOT modify the file. Return.
+     3. **Run guards** for this transition (if any in LIFECYCLE HOOKS).
+        Evaluate each guard in declaration order.
+        - Inline guards: read the document and check the condition.
+          If the condition is not met, reject with the failure message.
+        - Skill guards: invoke the referenced skill. If it returns
+          failure, reject with its reason.
+        - If ANY guard fails: report "Guard failed: {failure message}"
+          and DO NOT modify the file. Return.
+     4. Update the status field in frontmatter.
+     5. **Run actions** for this transition (if any in LIFECYCLE HOOKS).
+        Execute each action's referenced skill in declaration order.
+        If an action fails, the transition stands — report the failure
+        but do NOT roll back: "Status updated to {new}. Action
+        '{description}' failed: {reason}."
+     6. **Run notifications** for this transition (if any in LIFECYCLE
+        HOOKS). Fire each notification. Never block on failure.
+     7. Report the transition: "{name}: {old} -> {new}" with any
+        action results or failures.
+
+     When the type definition has no `## Lifecycle Hooks` section,
+     skip steps 3, 5, and 6 — validate and update only.
 
    - **split** — (Only for types with `## Facets`.) Extract a section
      to a sibling file.
@@ -318,19 +433,28 @@ the project directory.
      - Save the hub.
      - Report: "Merged {file} back into ## {section}."
 
-   **d. Dependencies section** — reads_from and consumed_by based on
+   - **Extra operations from sidecar.** For each H3 under the sidecar's `## Operations`, append a new `<{op-name}_operation>` block inside the `<operations>` section, after all default blocks, in the order declared in the sidecar. The block body is copied verbatim from the sidecar.
+
+   - **Splice hooks into default operations.** For each H3 under the sidecar's `## Hooks`:
+     - Parse as `{pre|post}-{target-op}`. The target-op must be a default op or a sidecar-declared extra op.
+     - Locate the target operation block in the generated SKILL.md.
+     - For `pre-{op}`: insert the hook body immediately before the `**Steps:**` list, prefixed with a `**Pre-hook:**` label. Concatenate multiple pre-hooks under one label in file order.
+     - For `post-{op}`: insert the hook body immediately after the Steps list and before `**Output:**`, prefixed with a `**Post-hook:**` label. Concatenate multiple post-hooks under one label in file order.
+     - Copy hook bodies verbatim.
+
+   **e. Dependencies section** — reads_from and consumed_by based on
    relationships.
 
-   **e. Error handling section** — every operation must produce output.
+   **f. Error handling section** — every operation must produce output.
    No silent failures.
 
-5. **Generate template file** (if creation mode includes template).
+6. **Generate template file** (if creation mode includes template).
    Write to `.claude/skills/{name}/templates/{name}.md`:
    - Frontmatter with all required fields as placeholders
    - All required sections as empty H2 headings
    - Optional sections as commented hints
 
-6. **Generate command file.** Write to `.claude/commands/{name}.md`:
+7. **Generate command file.** Write to `.claude/commands/{name}.md`:
    ```markdown
    ---
    name: {name}
@@ -353,11 +477,16 @@ the project directory.
    - `/{name} merge {identifier} {section}` → merge operation
    ```
 
-7. **Create collection directory and index** (if type defines one and it
+   For each extra operation declared in the sidecar's `## Operations`, add a route:
+   ```markdown
+   - `/{name} {op-name}` → {op-name} operation
+   ```
+
+8. **Create collection directory and index** (if type defines one and it
    doesn't exist yet). Create the directory and index file with empty
    `## Contents` section.
 
-8. **Report.** Confirm what was generated:
+9. **Report.** Confirm what was generated:
    ```
    ## Generated: {display} document type
 
@@ -366,9 +495,12 @@ the project directory.
    **Command:** .claude/commands/{name}.md
    **Template:** .claude/skills/{name}/templates/{name}.md (if applicable)
    **Location:** {resolved path from root document}
+   **Custom logic:** sidecar present (N extra ops, M hooks) | no sidecar
 
    Run `/{name} create` to create your first document.
    ```
+
+   The confirmation prose must report sidecar presence and what was spliced (extra operations appended, pre/post hooks added to which target operations).
 
 **Output:** skill path, command path, template path (if any), resolved location.
 </generate_operation>
@@ -383,8 +515,7 @@ the project directory.
 1. **Find the generated skill.** Read `.claude/skills/{name}/SKILL.md`.
    Check the `type-definition` frontmatter field.
 
-2. **Read the current type definition and root document.** Compare paths
-   and structure to current generated skill.
+2. **Read the current type definition, sidecar, and root document.** Also read `.config/documents/types/{name}.skill.md` if it exists — always reload fresh, never preserve manual edits to the generated SKILL.md. Compare paths and structure to current generated skill.
 
 3. **Regenerate.** Re-run the `generate` operation. Overwrite the skill,
    template, and command files.
@@ -394,6 +525,10 @@ the project directory.
    - Fields removed
    - Sections changed
    - Lifecycle transitions changed
+   - Lifecycle hooks changed (guards/actions/notifications added, removed, or modified)
+   - Sidecar added / removed
+   - Sidecar extra operations added or removed
+   - Sidecar hooks added or removed
    - Creation mode changed
    - Path changed (from root document update)
 
@@ -411,11 +546,11 @@ the project directory.
 4. Check if a generated skill exists at `.claude/skills/{name}/SKILL.md`
 5. Resolve location: check root type's Collections table, then parent
    types' Collections/Facets tables, then flat default
-6. Check for `## Collections` and `## Facets` sections in type definition
+6. Check for `## Collections` and `## Facets` sections in type definition. Check for sidecar at `.config/documents/types/{name}.skill.md`.
 7. Display as table:
 
-   | Document Type | Description | Location | Skill | Features | Status |
-   | {display} | {description} | {path from root} | generated/missing/stale | C (collections), F (facets), H (hosted by parent) | enabled/disabled |
+   | Document Type | Description | Location | Skill | Features | Custom Logic | Status |
+   | {display} | {description} | {path from root} | generated/missing/stale | C (collections), F (facets), H (hosted by parent) | yes (N ops, M hooks) / no | enabled/disabled |
 
 A skill is "stale" if the type definition file is newer than the generated
 skill's `materialized` date.

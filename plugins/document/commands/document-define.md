@@ -1,7 +1,7 @@
 ---
 name: document:define
 description: Define a new document type or regenerate from an existing type definition
-argument-hint: [type-name]
+argument-hint: "[type-name]"
 allowed-tools:
   - Read
   - Write

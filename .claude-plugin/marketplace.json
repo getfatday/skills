@@ -22,10 +22,10 @@
     {
       "name": "document",
       "source": "./plugins/document",
-      "description": "Document type system — define document types and generate per-type management skills with lifecycle, relationships, and CRUD operations",
+      "description": "Document type system — define document types, generate per-type management skills, enrich missing relationships via fuzzy match, verify inferred markers, render Dataview queries outside Obsidian, and lint portfolios for type drift, broken wikilinks, and stale inferred markers",
       "author": { "name": "getfatday" },
       "category": "meta-skills",
-      "keywords": ["document", "type-system", "meta-skill", "skill-generator", "lifecycle"]
+      "keywords": ["document", "type-system", "meta-skill", "skill-generator", "lifecycle", "lint", "audit", "enrichment", "dataview", "dql"]
     },
     {
       "name": "copilot-money",
