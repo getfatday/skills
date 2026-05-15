@@ -1,6 +1,6 @@
 # getfatday/skills
 
-Plugins for personal finance and entertainment data. Install a plugin and use slash commands to query your Monarch Money accounts or search IMDB. Works with Claude Code, Cursor, and any tool that reads the `claude` CLI.
+Personal Claude Code plugins and the standalone CLIs they wrap. Plugins live under `plugins/`, CLIs under `clis/`. Works with Claude Code; CLIs work standalone in any terminal.
 
 ## Install
 
@@ -8,55 +8,38 @@ Plugins for personal finance and entertainment data. Install a plugin and use sl
 
 ```bash
 claude plugin marketplace add getfatday/skills
-claude plugin install monarch
+claude plugin install copilot-money
 claude plugin install imdb
+claude plugin install dream-team
+claude plugin install document
 ```
 
-### Cursor
+### Standalone CLIs
 
-Cursor auto-discovers skills from `.claude/skills/` directories. After installing a plugin with the `claude` CLI (above), Cursor's Agent picks up the skill knowledge automatically. Slash commands (`/monarch`, `/imdb`) are Claude Code specific, but the domain skills (personal-finance, entertainment) work in Cursor's Agent context.
+The Python CLIs are usable outside Claude Code. Install with uv:
 
-### Any tool with a terminal
+```bash
+uv tool install --from ./clis/copilot-money-cli gfd-copilot-money-cli
+uv tool install --from ./clis/imdb-cli gfd-imdb-cli
+```
 
-The CLIs work standalone. Install them with uv and call `gfd-monarch` or `gfd-imdb` from any terminal, script, or agent that can run shell commands.
+All CLIs support `--format json` for machine-readable output (see `CLAUDE.md` for conventions).
 
 ## Plugins
 
-| Plugin | Commands | What it does |
-|--------|----------|--------------|
-| **monarch** | `/monarch`, `/monarch:transactions`, `/monarch:budget`, `/monarch:cashflow`, `/monarch:status` | Query Monarch Money accounts, transactions, budgets, and cash flow |
-| **imdb** | `/imdb`, `/imdb:movie`, `/imdb:person`, `/imdb:top` | Search IMDB for movies, people, box office, and top lists |
-
-### Usage
-
-Ask Claude about your finances:
-```
-/monarch          → Account overview with net worth and balances
-/monarch:budget   → Current month budget vs actuals
-```
-
-Look up movies:
-```
-/imdb Oppenheimer       → Search and get movie details
-/imdb:top               → Top 250 movies, shows, or current box office
-```
+| Plugin | What it does |
+|--------|--------------|
+| [copilot-money](plugins/copilot-money/README.md) | Personal finance — accounts, transactions, budgets, summaries from the local Copilot Money cache |
+| [document](plugins/document/README.md) | Document type system — define types, generate per-type management skills |
+| [dream-team](plugins/dream-team/README.md) | Avatar framework and marketplace — create, install, recruit, and orchestrate AI expert agents |
+| [imdb](plugins/imdb/README.md) | IMDB movie and TV data — search, details, cast, box office, top lists |
 
 ## CLIs
 
-Each plugin wraps a standalone CLI. You can use these directly outside Claude Code.
-
-| CLI | Command | Subcommands |
-|-----|---------|-------------|
-| **monarch-cli** | `gfd-monarch` | `auth`, `accounts`, `transactions`, `categories`, `budgets`, `cashflow`, `recurring` |
-| **imdb-cli** | `gfd-imdb` | `search`, `movie`, `person`, `top`, `upcoming` |
-
-All CLIs support `--json` for machine-readable output and `--format` for table/csv/json where applicable.
-
-Install from the repo with uv:
-```bash
-cd clis/monarch-cli && uv pip install -e .
-cd clis/imdb-cli && uv pip install -e .
-```
+| CLI | Command | Purpose |
+|-----|---------|---------|
+| copilot-money-cli | `gfd-copilot-money` | Reads local Copilot Money cache (LevelDB/Firestore) |
+| imdb-cli | `gfd-imdb` | IMDB data via Cinemagoer |
 
 ## Contributing
 
