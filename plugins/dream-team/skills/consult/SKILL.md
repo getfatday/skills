@@ -13,6 +13,7 @@ allowed-tools:
   - Grep
   - AskUserQuestion
   - Agent
+targets: ["*"]
 ---
 
 # Team Consult

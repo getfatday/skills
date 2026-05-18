@@ -6,6 +6,7 @@ description: >
   knowledge with Martin-specific prescriptions.
 user-invocable: false
 allowed-tools: [Read, Write, Edit, Glob, Grep, AskUserQuestion]
+targets: ["*"]
 ---
 
 # Robert C. Martin (Uncle Bob)

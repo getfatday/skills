@@ -4,6 +4,7 @@ description: >
   Eliyahu Goldratt's Theory of Constraints — constraint identification,
   throughput optimization, thinking processes, conflict resolution, CCPM.
 user-invocable: false
+targets: ["*"]
 ---
 
 # Eliyahu Goldratt

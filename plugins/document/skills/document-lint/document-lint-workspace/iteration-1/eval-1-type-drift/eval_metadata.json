@@ -1,0 +1,27 @@
+{
+  "eval_id": 1,
+  "eval_name": "type-drift-milestone-maps",
+  "prompt": "I just noticed that a bunch of our Milestone Map documents under Strategies/ are typed as research but they're clearly not research — they're tables synced from Jira. Can you check the portfolio for documents like that and fix them?",
+  "assertions": [
+    {
+      "id": "finds-milestone-maps",
+      "description": "Identifies the 10 Milestone Map files under Strategies/ typed as research",
+      "check": "output mentions at least 8 of the 10 Milestone Map files and flags them as mistyped"
+    },
+    {
+      "id": "detects-missing-findings",
+      "description": "Notes that research type requires ## Findings section which these files lack",
+      "check": "output references the missing ## Findings section as evidence of type drift"
+    },
+    {
+      "id": "proposes-new-type",
+      "description": "Recognizes the shared structure suggests a new type definition",
+      "check": "output proposes a new type (milestone-map or similar) or suggests running /document:document-define"
+    },
+    {
+      "id": "does-not-retype-initiative-audits",
+      "description": "Does not incorrectly flag Initiative Audit files which are correctly typed as research",
+      "check": "output does not propose retyping Initiative Audit files, or explicitly notes they are correctly typed"
+    }
+  ]
+}

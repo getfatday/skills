@@ -1,0 +1,23 @@
+{
+  "skill_name": "document-lint",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I just noticed that a bunch of our Milestone Map documents under Strategies/ are typed as research but they're clearly not research — they're tables synced from Jira. Can you check the portfolio for documents like that and fix them?",
+      "expected_output": "Identifies the ~14 Milestone Map files typed as research, recognizes they lack ## Findings sections, flags the pattern as needing a new type (milestone-map or similar), and either retypes them or suggests running /document:document-define. Also catches other research-typed docs that aren't actually research (Org Map, Jira Hierarchy, Outreach Drafts, etc).",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Run a full document lint on the portfolio. I want to see everything — type issues, missing links, orphans, the works.",
+      "expected_output": "Produces a comprehensive report covering all three check categories. Fixes unlinked people references where People files exist (e.g., Lucy Meadow -> lmeadow.md link). Creates People files for frequently-referenced people who don't have one yet. Finds the orphaned Research/HCOM doc and adds it to an index. Identifies type drift candidates with evidence.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Can you check the Functional Areas for any people references that should be linked? I think the engineering_leader fields are all just plain text names.",
+      "expected_output": "Scans all Functional Area index.md files, finds ~25 engineering_leader fields with unlinked plain-text names. For the 6 people who already have People files, converts to markdown links. For the rest, creates minimal People files and links them. Updates People/index.md with new entries.",
+      "files": []
+    }
+  ]
+}

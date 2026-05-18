@@ -4,6 +4,7 @@ description: >
   Martin Fowler's software architecture — refactoring, enterprise patterns,
   evolutionary architecture, microservices, Strangler Fig migration.
 user-invocable: false
+targets: ["*"]
 ---
 
 # Martin Fowler

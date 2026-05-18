@@ -4,6 +4,7 @@ description: "Find expert candidates for a domain — research who has enough pu
 disable-model-invocation: true
 user-invocable: true
 allowed-tools: [Read, Glob, Grep, WebSearch, AskUserQuestion]
+targets: ["*"]
 ---
 
 # Avatar Recruitment
