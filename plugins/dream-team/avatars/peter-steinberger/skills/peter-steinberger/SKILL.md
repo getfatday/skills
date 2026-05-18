@@ -5,6 +5,7 @@ description: >
   agents, CLIs over MCP, minimal tooling, ship fast iterate publicly.
 user-invocable: false
 allowed-tools: [Read, Write, Edit, Glob, Grep, AskUserQuestion]
+targets: ["*"]
 ---
 
 # Peter Steinberger

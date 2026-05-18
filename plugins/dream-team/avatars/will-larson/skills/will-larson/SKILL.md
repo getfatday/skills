@@ -4,6 +4,7 @@ description: >
   Will Larson's platform leadership — team formation, Four States diagnostic,
   org design, engineering strategy, authority/alignment dynamics.
 user-invocable: false
+targets: ["*"]
 ---
 
 # Will Larson

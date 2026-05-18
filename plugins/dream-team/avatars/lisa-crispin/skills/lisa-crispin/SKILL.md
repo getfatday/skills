@@ -4,6 +4,7 @@ description: >
   Lisa Crispin's agile testing — testing quadrants, whole-team quality,
   test automation strategy, shift left, continuous testing.
 user-invocable: false
+targets: ["*"]
 ---
 
 # Lisa Crispin

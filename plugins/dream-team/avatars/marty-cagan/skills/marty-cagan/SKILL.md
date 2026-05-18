@@ -4,6 +4,7 @@ description: >
   Marty Cagan's product strategy — empowered teams, product vision,
   strategic context, transformation, and product leadership coaching.
 user-invocable: false
+targets: ["*"]
 ---
 
 # Marty Cagan

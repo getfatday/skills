@@ -1,8 +1,10 @@
 ---
 name: avatar-create
 description: "Create a new avatar agent — research an expert, analyze their work, generate avatar plugin + domain team plugin"
+disable-model-invocation: true
 user-invocable: true
 allowed-tools: [Read, Write, Edit, Bash, Glob, Grep, WebSearch, AskUserQuestion]
+targets: ["*"]
 ---
 
 # Avatar Creation Pipeline

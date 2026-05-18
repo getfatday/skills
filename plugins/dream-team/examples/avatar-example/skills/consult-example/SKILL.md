@@ -6,6 +6,7 @@ allowed-tools:
   - Glob
   - Grep
   - AskUserQuestion
+targets: ["*"]
 ---
 
 Trigger: `/consult-example` or "talk to code reviewer"

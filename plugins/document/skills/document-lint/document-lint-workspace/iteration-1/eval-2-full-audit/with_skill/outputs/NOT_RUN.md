@@ -1,0 +1,1 @@
+This eval was not completed in iteration 1. The without_skill baseline took 570s (69k tokens) for a full portfolio audit. The with_skill run needs to be executed in iteration 2 to complete the comparison.

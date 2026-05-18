@@ -4,6 +4,7 @@ description: >
   Shared engineering fundamentals — TDD cycle, software design principles,
   code quality, professionalism, and the practices all team members agree on.
 user-invocable: false
+targets: ["*"]
 ---
 
 # Engineering (Shared Domain)

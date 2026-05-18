@@ -6,6 +6,7 @@ description: >
   knowledge with Beck-specific perspectives.
 user-invocable: false
 allowed-tools: [Read, Write, Edit, Glob, Grep, AskUserQuestion]
+targets: ["*"]
 ---
 
 # Kent Beck

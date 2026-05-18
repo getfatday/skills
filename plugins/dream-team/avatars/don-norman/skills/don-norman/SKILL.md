@@ -4,6 +4,7 @@ description: >
   Don Norman's human-centered design — affordances, signifiers, conceptual
   models, emotional design, constraints, feedback, error prevention.
 user-invocable: false
+targets: ["*"]
 ---
 
 # Don Norman

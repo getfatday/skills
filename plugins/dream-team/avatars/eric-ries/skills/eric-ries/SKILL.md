@@ -4,6 +4,7 @@ description: >
   Eric Ries' Lean Startup — Build-Measure-Learn, MVP as experiment,
   innovation accounting, pivot-or-persevere, metered funding.
 user-invocable: false
+targets: ["*"]
 ---
 
 # Eric Ries

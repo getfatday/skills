@@ -4,6 +4,7 @@ description: >
   Shared product management fundamentals — outcomes over outputs,
   customer validation, discovery discipline, product trio.
 user-invocable: false
+targets: ["*"]
 ---
 
 # Product (Shared Domain)

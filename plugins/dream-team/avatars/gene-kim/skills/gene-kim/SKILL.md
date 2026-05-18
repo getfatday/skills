@@ -5,6 +5,7 @@ description: >
   deployment pipelines, flow, and organizational transformation.
 user-invocable: false
 allowed-tools: [Read, Write, Edit, Glob, Grep, AskUserQuestion]
+targets: ["*"]
 ---
 
 # Gene Kim

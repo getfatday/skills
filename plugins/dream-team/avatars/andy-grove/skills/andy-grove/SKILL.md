@@ -4,6 +4,7 @@ description: >
   Andy Grove's production-minded management — leverage, TRM, output orientation,
   paired indicators, strategic inflection points, OKRs.
 user-invocable: false
+targets: ["*"]
 ---
 
 # Andy Grove
