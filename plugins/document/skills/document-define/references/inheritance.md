@@ -2,47 +2,52 @@
 
 Hierarchical document types (sessions → sessions, tasks → tasks via
 `parent-task`, initiatives → initiatives, epics → stories) benefit from
-auto-inheriting fields from their parent — `project:`, `health:`, or
-any other "sticky" value — so child documents don't have to restate
-context that's already on the parent.
+auto-inheriting fields from their parent — `project:`, `health:`, or any
+other "sticky" value — so child documents don't have to restate context
+that's already on the parent.
 
-Inheritance is a `post-create` concern: after the child document is
-written, look up the parent and fold in selected fields. The plugin
-ships a generic helper, `plugins/document/scripts/inherit-parent-fields.sh`,
-that reads a spawn-context marker and prints the YAML fragments to
-splice into the new document's frontmatter.
+Inheritance is a `post-create` concern: after the child document is written,
+look up the parent and fold in selected fields. The sidecar's post-create
+hook performs the work **inline as skill instructions** — no script call.
+This keeps the generated Tier-3 artifact self-sufficient: it doesn't reference
+`${CLAUDE_PLUGIN_ROOT}` and runs in any repo, with or without the plugin
+installed.
 
-See `custom-logic-schema.md` for the sidecar grammar. This reference
-documents the inheritance pattern.
+See `custom-logic-schema.md` for the sidecar grammar.
 
 ## The Pattern in Two Steps
 
-1. **Spawn capture (PreToolUse hook, project-level).** When the user
-   invokes an operation that creates a child document (e.g.,
-   `workmux add`), a PreToolUse Bash hook writes a marker file to
+1. **Spawn capture (PreToolUse hook, project-level).** When the user invokes
+   an operation that creates a child document (e.g. `workmux add`), a
+   PreToolUse hook writes a marker file to
    `$HOME/.document-spawn-context/pending.{type}` recording:
    - parent identifier (filename stem or ID)
-   - timestamp
+   - timestamp (`written_at: <unix-epoch>`)
    - max-age window (default 120 seconds)
 
-   This hook lives OUTSIDE the plugin — it's written by the consumer
-   because different projects spawn children differently (workmux,
-   shell wrappers, explicit `/{type} create` with a parent flag, etc).
+   This hook lives OUTSIDE the plugin — consumers write it because different
+   projects spawn children differently.
 
-2. **Child creation (post-create hook, sidecar-level).** The child
-   type's `{type}.skill.md` declares a `post-create` hook that calls
-   `inherit-parent-fields.sh` with the marker path and the fields to
-   inherit. The helper:
-   - Reads the marker (if fresh)
-   - Looks up the parent document
-   - Prints YAML lines ready to splice into the child's frontmatter
-   - Sets `inferred: true` so `document-verify-inferred` prompts the
-     user later
-   - Consumes the marker (deletes it) on every invocation
+2. **Child creation (post-create hook, sidecar-level).** The child type's
+   `{type}.skill.md` declares a `post-create` hook whose body instructs the
+   generated skill (the `create` operation, after the document is written) to:
+
+   1. Check `$HOME/.document-spawn-context/pending.{type}` exists and is
+      no older than its `max_age_seconds`.
+   2. If absent or stale: do nothing; delete the marker if it exists.
+   3. If fresh: read the `parent: <identifier>` line; locate the parent
+      document under the parent's collection directory; read its frontmatter;
+      for each field in the inherit list, copy the parent's value into the
+      child's frontmatter (preferring any user-entered value over the
+      inherited one); add a `parent-{type}: <wikilink>` back-reference and
+      `inferred: true`.
+   4. Delete the marker on every invocation so a second create never re-
+      consumes it.
 
 ## Sidecar Declaration
 
-Add a `post-create` hook to the child type's sidecar:
+Add a `post-create` hook to the child type's sidecar — instructions only, no
+script invocation:
 
 ```markdown
 # Session — Custom Logic
@@ -51,54 +56,41 @@ Add a `post-create` hook to the child type's sidecar:
 
 ### post-create
 
-After writing the new session document, invoke the inherit-parent-fields
-helper to fold in the parent session's context. Run from the project
-root:
+After writing the new session document, fold in the parent session's context:
 
-```bash
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/inherit-parent-fields.sh \
-  --marker "$HOME/.document-spawn-context/pending.session" \
-  --max-age 120 \
-  --portfolio "$PORTFOLIO_ROOT" \
-  --parent-dir "Sessions" \
-  --inherit-fields "project" \
-  --self-type session
+1. If `$HOME/.document-spawn-context/pending.session` exists and is newer
+   than 120 seconds, read its `parent: <id>` line. Otherwise stop.
+2. Look up the parent session under `Sessions/<id>.md` (or its index.md).
+3. Read the parent's `project:` field. If set, write it into this session's
+   frontmatter as `project:` — but only if the field is currently empty
+   (prefer any user-entered value).
+4. Add `parent-session: "[[Sessions/<id>|<id>]]"` as a back-reference.
+5. Set `inferred: true` so `document-verify-inferred` prompts the user
+   later.
+6. Delete `$HOME/.document-spawn-context/pending.session` on every
+   invocation, even when no inheritance happens, so a second create never
+   re-consumes a stale marker.
 ```
 
-Capture the helper's stdout as YAML fragments. Splice them into the new
-session's frontmatter, preserving any user-entered values (prefer user
-over inherited). If the helper outputs nothing, the child has no
-parent context — leave the frontmatter unchanged.
-```
+The splicer copies this hook verbatim into the generated skill's `create`
+operation, between the Steps list and the Output line. The hook is plain
+markdown instructions Claude follows — no script dependency, no
+`${CLAUDE_PLUGIN_ROOT}` reference.
 
-The splicer copies this hook verbatim into the generated skill's
-`create` operation, between the Steps list and the Output line.
+## Why this is inline, not a script call
 
-## Generic Helper API
-
-`plugins/document/scripts/inherit-parent-fields.sh` takes:
-
-| Flag | Required? | Purpose |
-|------|-----------|---------|
-| `--marker <path>` | yes | spawn-context file (supports `~` expansion) |
-| `--max-age <seconds>` | no (default 120) | reject marker if older |
-| `--portfolio <dir>` | yes | portfolio root for parent lookup |
-| `--parent-dir <relative>` | yes | directory under portfolio containing parents |
-| `--inherit-fields <csv>` | yes | comma-separated field names |
-| `--self-type <string>` | no | inferred type name; used to build the default parent field name |
-| `--parent-field <name>` | no | defaults to `parent-{self-type}` |
-
-Output: YAML lines on stdout, one per inherited field plus the
-parent back-reference and `inferred: true`.
-
-Behavior guarantees:
-
-- Missing marker → exit 0 silently (child has no parent to inherit from)
-- Stale marker → exit 0 silently AFTER consuming the marker
-- Fresh marker with missing parent → emit only the back-reference + inferred
-- Fresh marker with parent found → emit all requested inherited fields
-
-Always deletes the marker so a second create never re-consumes it.
+Earlier drafts of this reference invoked
+`${CLAUDE_PLUGIN_ROOT}/scripts/inherit-parent-fields.sh` from the sidecar.
+That call leaks `${CLAUDE_PLUGIN_ROOT}` into a generated Tier-3 artifact,
+violating the FACTORY.md self-sufficiency rule (a materialized artifact must
+run with no plugin installed). Inlining the logic resolves the leak. The
+trade-off is determinism: Claude executes the lookup, where a shell script
+would be byte-deterministic. For an inherit-from-parent operation that runs
+once per child-document creation, the lookup is simple enough that inline
+instructions are acceptable; if a project genuinely needs deterministic
+inheritance, materialize a helper script into `.claude/skills/{type}/scripts/`
+via `/document:upgrade` and reference it by a repo-relative path
+rooted at `$(git rev-parse --show-toplevel)`.
 
 ## Example: Session → Session Inheritance
 
@@ -123,62 +115,27 @@ Project setup:
    EOF
    ```
 
-2. **Session sidecar** (`.config/documents/types/session.skill.md`):
-
-   ```markdown
-   ## Hooks
-
-   ### post-create
-
-   Invoke `bash ${CLAUDE_PLUGIN_ROOT}/scripts/inherit-parent-fields.sh
-   --marker "$HOME/.document-spawn-context/pending.session"
-   --portfolio "$PORTFOLIO_ROOT" --parent-dir Sessions
-   --inherit-fields "project" --self-type session`.
-   Splice stdout into the new session's frontmatter.
-   ```
+2. **Session sidecar** (`.config/documents/types/session.skill.md`) — use the
+   inline-instructions form above, naming `Sessions` as the parent
+   collection directory and `project` as the inherited field.
 
 3. **Result.** A child session spawned inside a workmux parent window
-   inherits `project:` + a `parent-session:` back-reference +
-   `inferred: true`. A root session (no parent context) writes with
-   no inheritance. A stale marker (user sat in shell for 10 minutes)
-   behaves like a root session.
-
-## Example: Task → Task Inheritance
-
-Same mechanism, different marker:
-
-```markdown
-## Hooks
-
-### post-create
-
-Invoke the inherit helper:
-
-```bash
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/inherit-parent-fields.sh \
-  --marker "$HOME/.document-spawn-context/pending.task" \
-  --max-age 60 \
-  --portfolio "$PORTFOLIO_ROOT" \
-  --parent-dir Tasks \
-  --inherit-fields "project,priority" \
-  --self-type task
-```
-
-Splice the stdout into the new task's frontmatter.
-```
+   inherits `project:` plus a `parent-session:` back-reference plus
+   `inferred: true`. A root session (no parent context) writes with no
+   inheritance. A stale marker (user sat in shell for 10 minutes) behaves
+   like a root session.
 
 ## Why a Sidecar (Not the Type Definition)?
 
 - **Inheritance rules are policy, not structure.** The type definition
-  describes shape (a session HAS a `parent-session` field). The
-  sidecar describes behavior (a session INHERITS `project:` from its
-  parent when spawned in-context).
-- **Project-specific.** Which fields to inherit depends on how the
-  consumer uses the type. The sidecar stays inside the consuming
-  project; the type definition stays portable.
+  describes shape (a session HAS a `parent-session` field). The sidecar
+  describes behavior (a session INHERITS `project:` from its parent when
+  spawned in-context).
+- **Project-specific.** Which fields to inherit depends on how the consumer
+  uses the type. The sidecar stays inside the consuming project; the type
+  definition stays portable.
 - **Survives regeneration.** Type-definition-only rules would lose the
-  inheritance logic on every `/document:define` run; sidecar hooks
-  persist.
+  inheritance logic on every `/document:define` run; sidecar hooks persist.
 
 ## Related Reading
 
@@ -187,5 +144,3 @@ Splice the stdout into the new task's frontmatter.
 - `status-transitions.md` — sidecar hooks for lifecycle transitions
 - `type-definition-schema.md` — reserved `inferred: boolean` field
   convention (inheritance sets this)
-- `plugins/document/scripts/inherit-parent-fields.sh` — the generic
-  helper script

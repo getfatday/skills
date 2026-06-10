@@ -18,6 +18,7 @@ The plugin ships the meta-skill (`document-define`) and the schema reference. Yo
 |---------|-------------|
 | `/document:define` | Define a new document type (conversational) or regenerate from an existing definition |
 | `/document:list-types` | List all defined document types and their generation status |
+| `/document:events` | Query the change-event log — what changed, when, and by whom |
 
 ## How it works
 
@@ -44,3 +45,25 @@ your-project/
       brand.md                 # Generated command
       prd.md                   # Generated command
 ```
+
+## Event log
+
+`/document:events` answers questions about how the portfolio changed over
+time. It treats git history as a write-ahead log: every commit is a
+transaction, and every create, update, status change, rename, or delete of a
+typed document is an **event**.
+
+The event log is *derived*, never stored — `scripts/derive-events.py` walks
+`git log` and reconstructs events deterministically, so the same history
+yields the same log on any clone. The script is a zero-dependency Python 3
+script that runs in place; there is nothing to install.
+
+```
+/document:events                          # catch-up digest of recent activity
+/document:events log --type prd --op status-changed --since 2026-05-01
+/document:events history Products/Checkout/prd.md
+```
+
+The feature is read-only — it never writes to the portfolio. See
+`skills/document-define/references/event-model.md` for the event schema and
+the derivation algorithm.

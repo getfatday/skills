@@ -1,0 +1,23 @@
+{
+  "skill_name": "document-events",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Catch me up — what's changed across the docs over the last couple of weeks?",
+      "expected_output": "Recognizes this as a digest request. Runs the deriver over a recent window (defaulting to ~14 days), then summarizes rather than dumping every event: counts by operation (created / updated / status-changed / deleted / renamed), counts by type, the notable status transitions called out individually, and the most active documents and actors. Does not print raw JSON unless asked.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "What's the full history of the Checkout PRD?",
+      "expected_output": "Recognizes this as a history request for one named document. Runs the deriver filtered to that document and presents every event in chronological order as a timeline, highlighting the creation event and any status transitions. If the name matches more than one document, lists the matches and asks which one.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Which PRDs moved to review this month?",
+      "expected_output": "Recognizes this as a filtered log query. Runs the deriver with type=prd, op=status-changed, and a since-date for the start of the month, and presents the matching transitions as a table (date, document, from -> to, actor). If no PRDs transitioned, says so explicitly rather than returning an empty table with no explanation.",
+      "files": []
+    }
+  ]
+}

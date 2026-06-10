@@ -1,7 +1,18 @@
 {
   "name": "dream-team",
-  "description": "Avatar framework and marketplace — create, install, recruit, and orchestrate AI expert agents",
-  "version": "0.5.0",
-  "author": { "name": "getfatday" },
-  "keywords": ["avatar", "expert", "agent", "team", "orchestration", "framework"]
+  "description": "Factory plugin for AI expert teams — recruit experts, materialize self-sufficient /consult-/coach-/plan-/review workflows into your repo, keep them working after plugin uninstall. Multi-IDE (Claude+Cursor+Copilot) with blueprint-integrity hooks.",
+  "version": "1.0.1",
+  "author": {
+    "name": "getfatday"
+  },
+  "keywords": [
+    "team-member",
+    "expert",
+    "agent",
+    "team",
+    "orchestration",
+    "factory",
+    "framework"
+  ],
+  "dreamTeamSchemaVersion": 1
 }

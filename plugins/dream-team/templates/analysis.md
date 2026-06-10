@@ -1,11 +1,11 @@
 ---
-type: avatar-analysis
+type: team-member-analysis
 expert: "{{Expert Name}}"
 sources-analyzed: {{count}}
 last-analyzed: "{{YYYY-MM-DD}}"
 ---
 
-# Avatar Analysis: {{Expert Name}}
+# Team Member Analysis: {{Expert Name}}
 
 ## Principles
 <!-- Beliefs appearing across multiple sources. Strongest signal = most repeated. -->
