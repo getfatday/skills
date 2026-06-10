@@ -1,0 +1,23 @@
+{
+  "skill_name": "document-verify-inferred",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Walk me through the documents that still have inferred markers and let me confirm them.",
+      "expected_output": "Collects every typed document whose frontmatter carries `inferred: true`, sorted oldest-first. For each, shows the likely-inferred fields and prompts Confirm / Correct / Skip. On Confirm, strips the `inferred: true` line; on Correct, gathers a replacement value, writes it, then strips the marker; on Skip, leaves the document untouched. Offers an early exit periodically. Ends with a count of confirmed / corrected / skipped and how many remain.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "How many documents still need verification? Just give me the list, don't make me go through them.",
+      "expected_output": "Runs in batch mode — prints the inferred-marker queue as a table (file, type, age in days, candidate fields), oldest-first, without prompting document-by-document. Does not modify any file.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Verify the inferred project links on my session documents — last month's backfill guessed some of them wrong.",
+      "expected_output": "Scopes the walk to documents of type `session` carrying `inferred: true`. For each, surfaces the `project` field value and prompts Confirm / Correct / Skip. Exercises the Correct path: when the value is wrong, offers the existing project instances as options, writes the chosen link, and strips the `inferred: true` marker. Confirmed-correct values also have the marker stripped.",
+      "files": []
+    }
+  ]
+}

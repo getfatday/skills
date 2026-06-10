@@ -1,0 +1,6 @@
+{
+  "name": "team-member-{{slug}}",
+  "version": "1.0.0",
+  "description": "{{Expert Name}} team-member — {{one-line description}}",
+  "commandPrefix": "{{primary-domain}}"
+}

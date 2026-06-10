@@ -2,11 +2,11 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Edit",
+        "matcher": "Edit|Write",
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/check-status-edit.sh"
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/check-document-edit.py"
           }
         ]
       }

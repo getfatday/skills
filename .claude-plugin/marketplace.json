@@ -14,18 +14,18 @@
     {
       "name": "dream-team",
       "source": "./plugins/dream-team",
-      "description": "Avatar framework and marketplace — create, recruit, consult, review, plan, and coach with AI expert agents. Ships with 21 curated avatars and 10 composable conversation patterns (map-reduce, debate, reflection, sequential, supervisor, hierarchical, blackboard, voting, round-robin, MoE routing) with an adaptive router that selects and switches patterns dynamically.",
+      "description": "Factory plugin for AI expert teams — recruit experts, materialize self-sufficient /consult-/coach-/plan-/review workflows into your repo, keep them working after plugin uninstall. Multi-IDE (Claude+Cursor+Copilot) with blueprint-integrity hooks.",
       "author": { "name": "getfatday" },
       "category": "framework",
-      "keywords": ["avatar", "expert", "agent", "team", "orchestration", "engineering", "devops", "ddd"]
+      "keywords": ["team-member", "expert", "agent", "team", "orchestration", "factory", "framework"]
     },
     {
       "name": "document",
       "source": "./plugins/document",
-      "description": "Document type system — define document types and generate per-type management skills with lifecycle, relationships, and CRUD operations",
+      "description": "Document type system — define document types and generate per-type management skills with lifecycle, relationships, enrichment, verification, and CRUD operations, plus a git-derived change-event log over the portfolio",
       "author": { "name": "getfatday" },
       "category": "meta-skills",
-      "keywords": ["document", "type-system", "meta-skill", "skill-generator", "lifecycle"]
+      "keywords": ["document", "type-system", "meta-skill", "skill-generator", "lifecycle", "enrichment", "events", "event-log", "cdc", "audit"]
     },
     {
       "name": "copilot-money",

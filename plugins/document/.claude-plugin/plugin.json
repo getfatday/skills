@@ -1,7 +1,21 @@
 {
   "name": "document",
-  "description": "Document type system — define document types and generate per-type management skills with lifecycle, relationships, and CRUD operations",
-  "version": "0.3.0",
-  "author": { "name": "xp" },
-  "keywords": ["document", "type-system", "meta-skill", "skill-generator", "lifecycle"]
+  "description": "Document type system — define document types and generate per-type management skills with lifecycle, relationships, enrichment, verification, and CRUD operations, plus a git-derived change-event log over the portfolio",
+  "version": "0.16.1",
+  "author": {
+    "name": "xp"
+  },
+  "keywords": [
+    "document",
+    "type-system",
+    "meta-skill",
+    "skill-generator",
+    "lifecycle",
+    "enrichment",
+    "events",
+    "event-log",
+    "cdc",
+    "audit"
+  ],
+  "documentSchemaVersion": 1
 }

@@ -1,0 +1,34 @@
+{
+  // .config/documents/rulesync.jsonc
+  //
+  // Cross-IDE target configuration for the document plugin. This file
+  // is *namespaced inside the document type-system root* and is
+  // separate from any repo-root `rulesync.jsonc` your project keeps
+  // for non-document content. The `documentTargets: true` marker
+  // below tells /document:upgrade that this is the document-plugin's
+  // config — without it, the file is treated as a foreign rulesync
+  // config and ignored.
+  //
+  // Edit `targets` to add or remove harnesses. Supported target names
+  // are whatever rulesync supports — common ones:
+  //   cursor       — Cursor (skills, commands, subagents, hooks)
+  //   codexcli     — OpenAI Codex CLI
+  //   copilot      — GitHub Copilot
+  //   cline        — Cline VS Code extension
+  //   aider        — Aider CLI
+  //   windsurf     — Windsurf editor
+  //   geminicli    — Gemini CLI
+  //
+  // The per-target value is the list of `features` that target should
+  // receive. Available features: skills, commands, subagents, hooks,
+  // rules, mcp, ignore. rulesync skips (target, feature) pairs the
+  // target doesn't support, so a generous list is safe.
+
+  "documentTargets": true,
+  "schema-version": 1,
+  "targets": {
+    "cursor": ["skills", "commands", "subagents", "hooks"],
+    "codexcli": ["skills", "commands"],
+  },
+  "delete": false,
+}

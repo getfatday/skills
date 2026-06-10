@@ -15,6 +15,9 @@ Type definitions live at `.config/documents/types/{name}.md` in the consuming pr
 - name: {slug} — lowercase, hyphenated, used as `type:` value in frontmatter
 - display: {Display Name} — human-readable name
 - description: {one-line description}
+- schema-version: {integer} — the document-schema revision this definition
+  targets (current: 1); a definition with no `schema-version` is treated as
+  version 1. See `schema-migrations.md`.
 
 ## Fields
 
@@ -42,6 +45,25 @@ machinery (`document-enrich`, `document-verify-inferred`,
   confirmation is a blanket statement ("a human endorsed this
   document"); scanners that want granular recording should also append
   a `## History` entry.
+- `supersedes: link` — points to the doc this one replaces. Set by the
+  user when authoring a successor doc. `document-lint --supersession`
+  reads this field to detect missing back-links; `--fix` writes the
+  reciprocal `superseded-by` on the prior doc.
+- `superseded-by: link` — points to the doc that replaces this one.
+  Set by `document-lint --supersession --fix` when propagating a
+  declared supersession. Authors may also set this manually; the lint
+  treats both directions symmetrically.
+- `supersedes-propagated: boolean` — idempotency marker written by
+  `document-lint --supersession --fix` once the back-link has been
+  written to the prior doc. Once `true`, subsequent `--fix` runs
+  treat the supersession as resolved and skip re-writing.
+- `contradiction-with: links` — set by `document-lint --semantic`
+  (Check 6b) on both sides of any pair of docs the LLM judges to
+  carry incompatible facts. Always written together with
+  `inferred: true` so `/document:verify-inferred` surfaces the pair
+  for human review. Resolution (deleting one side, editing both,
+  marking one as historical, etc.) is the human's call; the lint
+  never auto-resolves.
 
 ## Sections
 
@@ -157,6 +179,7 @@ Guards are boolean. They validate preconditions. They return pass/fail with a me
 - name: brand
 - display: Brand
 - description: A brand identity within the organization
+- schema-version: 1
 
 ## Fields
 
@@ -204,6 +227,7 @@ Guards are boolean. They validate preconditions. They return pass/fail with a me
 - name: product
 - display: Product
 - description: A product hub with child collections and extractable facets
+- schema-version: 1
 
 ## Fields
 
@@ -266,6 +290,7 @@ Guards are boolean. They validate preconditions. They return pass/fail with a me
 - name: prd
 - display: PRD
 - description: Product Requirements Document
+- schema-version: 1
 
 ## Fields
 

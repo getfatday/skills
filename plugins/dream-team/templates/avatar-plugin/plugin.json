@@ -1,6 +1,0 @@
-{
-  "name": "avatar-{{slug}}",
-  "version": "1.0.0",
-  "description": "{{Expert Name}} avatar — {{one-line description}}",
-  "commandPrefix": "{{primary-domain}}"
-}

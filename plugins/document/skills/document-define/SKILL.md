@@ -1,5 +1,6 @@
 ---
 name: document-define
+tier: 1-plugin
 description: >
   Meta-skill that generates document-type-specific skills from type definitions.
   User describes a document type conversationally, document-define produces a
@@ -65,10 +66,36 @@ document tree.
 ## Configuration
 - root-type: {type-name}
 - root-location: {path to root document instance, e.g., ./index.md}
+- schema-version: 1
+- max-fanout: 12        # max handlers invoked per dispatch emit; default 12
+- max-depth: 1          # max cascade depth (handler emitting another event); default 1
+- max-stubs: 5          # max auto-created stub pages per dispatch invocation; default 5
 
 ## Conventions
 - naming-convention: Title Case
 ```
+
+### Schema Version
+
+`schema-version` records which revision of the document schema this project's
+config was written against. The current version is **1**. A config file with
+no `schema-version` line is treated as version 1 (every pre-existing project
+stays valid). When the schema changes in a breaking way, the version is bumped
+and a migration step is added to `references/schema-migrations.md`;
+`/document:upgrade` runs outstanding migrations. Additive changes (a new
+optional field or section) do not bump the version.
+
+`regenerate` never modifies config files — backfilling a missing
+`schema-version` line onto a pre-existing `root.md` or type definition is
+`/document:upgrade`'s responsibility, not the generator's.
+
+### Dispatch caps
+
+The `max-*` keys are read by `document-dispatch` to cap runaway fan-out,
+recursion, and stub creation. They are optional — when absent, dispatch uses
+the defaults shown above. Bumping them is fine for portfolios with many
+subscribers; lowering them is the right move when a dispatch run starts
+feeling chatty.
 
 ### Naming Convention
 
@@ -201,7 +228,8 @@ works identically when the plugin is absent.
    - Write `## Facets` table to the type definition.
 
 9. **Write type definition.** Write to `.config/documents/types/{name}.md`
-   using the format from type-definition-schema.md.
+   using the format from type-definition-schema.md. Include
+   `schema-version: 1` in the `## Identity` section.
 
 10. **Register the type.** A type can be registered in multiple places:
    - Ask: "Where should documents of this type live?"
@@ -234,6 +262,10 @@ works identically when the plugin is absent.
 2. **Check for custom logic sidecar.** Look for `.config/documents/types/{name}.skill.md`. If present, parse per `references/custom-logic-schema.md`:
    - Parse `## Operations` H2 and its H3 children as extra operations.
    - Parse `## Hooks` H2 and its H3 children as `pre-{op}` / `post-{op}` hooks.
+   - Parse `## Subscriptions` H2 as a markdown table with rows of (event, handler, condition).
+     - Validate `event` against the reserved event names listed in `skills/document-dispatch/references/event-schema.md` (`document-created`, `document-updated`, `link-created`, `entity-mentioned`, `lifecycle-changed`). Reject unknown events with file path + row number.
+     - Validate `condition` against the closed grammar (`always` | `<field> <op> <literal>` | `<field> in {<lit>, ...}`). Reject parse failures with file path + row number, BEFORE writing any files.
+     - Resolve `handler`: a handler that names a default op or a sidecar-declared extra op reuses that block; a handler that doesn't exist becomes a stub op.
    - Validate per the spec's Error Cases. Abort generation on any error (unknown H2 warns only).
    - Hold the parsed sidecar for use in step 5 (SKILL.md generation) and step 7 (command file).
    If no sidecar exists, proceed with default generation. This is not an error.
@@ -258,14 +290,31 @@ works identically when the plugin is absent.
    description: >
      Manages {display} documents. Handles creation, retrieval, listing,
      validation, and lifecycle transitions.
+   factory: document
+   factory-version: "{plugin-version}"
    generated-by: document-define
-   generator-version: "1.3"
+   generator-version: "1.4"
+   source: "skills/document-define/SKILL.md"
    type-definition: ".config/documents/types/{name}.md"
+   type-definition-hash: "{sha256-of-type-definition}"
    materialized: "{today}"
+   tier: 3
    user-invocable: false
    allowed-tools: [Read, Write, Edit, Glob, Grep, AskUserQuestion]
    ---
    ```
+
+   This frontmatter block is the artifact's **provenance stamp** (see the
+   plugin's `FACTORY.md`). Set `factory-version` to the `version` field from
+   the plugin's `.claude-plugin/plugin.json` at generation time;
+   `type-definition` is the source of truth this Tier-3 skill is regenerated
+   from; `type-definition-hash` is the sha256 of the type-definition file's
+   bytes at generation time, computed with the equivalent of `sha256sum
+   .config/documents/types/{name}.md` — `/document:upgrade` compares it
+   against the current type-definition's hash to detect a stale skill when
+   its type changed without a plugin-version bump. `tier: 3` marks it as a
+   per-type generated artifact. Bump `generator-version` here whenever the
+   generation rules below change.
 
    The SKILL.md body includes:
 
@@ -442,6 +491,39 @@ works identically when the plugin is absent.
      - For `post-{op}`: insert the hook body immediately after the Steps list and before `**Output:**`, prefixed with a `**Post-hook:**` label. Concatenate multiple post-hooks under one label in file order.
      - Copy hook bodies verbatim.
 
+   - **Splice subscription handlers + subscriptions block.** For each row under the sidecar's `## Subscriptions`:
+     - If the `handler` names a default op or a sidecar-declared extra op (from `## Operations`), reuse that op — do NOT generate a new block. Subscription wiring is handled at dispatch time by the `<subscriptions>` block (see below), not by per-handler blocks.
+     - If the `handler` is otherwise undeclared, append a new `<{handler}_operation>` block to the `<operations>` section AFTER all default blocks AND after all sidecar-declared extra-op blocks, in declaration order. Body:
+
+       ```markdown
+       ## {handler} — Stub handler for subscribed events.
+
+       <{handler}_operation>
+       **Inputs:** event payload (JSON on stdin).
+
+       **Steps:**
+
+       1. # TODO: implement {handler} — payload schema documented in skills/document-dispatch/references/event-schema.md.
+
+       **Output:** describe the side effect.
+       </{handler}_operation>
+       ```
+
+     - After the closing `</operations>` tag, append a sibling `<subscriptions>` block listing the type's subscriptions in source order:
+
+       ```markdown
+       <subscriptions>
+       ## Subscriptions
+
+       | event              | handler            | condition |
+       |--------------------|--------------------|-----------|
+       | entity-mentioned   | log-mention        | always    |
+       </subscriptions>
+       ```
+
+     - The `<subscriptions>` block exists so `/{type}` users can see at a glance which events the skill listens to. `document-dispatch` reads the sidecar table directly — it does NOT depend on this rendered block.
+     - When the sidecar has no `## Subscriptions` section, NO `<subscriptions>` block is written and NO stub handler operations are generated. Generated output for a type without subscriptions is byte-identical to the v0.5.1 baseline.
+
    **e. Dependencies section** — reads_from and consumed_by based on
    relationships.
 
@@ -454,11 +536,21 @@ works identically when the plugin is absent.
    - All required sections as empty H2 headings
    - Optional sections as commented hints
 
-7. **Generate command file.** Write to `.claude/commands/{name}.md`:
+7. **Generate command file.** Write to `.claude/commands/{name}.md`. It
+   carries the same provenance stamp as the generated skill:
    ```markdown
    ---
    name: {name}
    description: Manage {display} documents
+   factory: document
+   factory-version: "{plugin-version}"
+   generated-by: document-define
+   generator-version: "1.4"
+   source: "skills/document-define/SKILL.md"
+   type-definition: ".config/documents/types/{name}.md"
+   type-definition-hash: "{sha256-of-type-definition}"
+   materialized: "{today}"
+   tier: 3
    allowed-tools: [Read, Write, Edit, Glob, Grep, AskUserQuestion]
    ---
 
@@ -482,27 +574,67 @@ works identically when the plugin is absent.
    - `/{name} {op-name}` → {op-name} operation
    ```
 
+   For each subscription handler that became a stub op (i.e., the handler name is not a default op and not declared in `## Operations`), add a route:
+   ```markdown
+   - `/{name} {handler}` → {handler} operation (subscription stub)
+   ```
+
+   Subscription handlers that reuse a default op or a sidecar-declared extra op do NOT add a new route — they reuse the existing route.
+
 8. **Create collection directory and index** (if type defines one and it
    doesn't exist yet). Create the directory and index file with empty
    `## Contents` section.
 
-9. **Report.** Confirm what was generated:
+9. **Cross-IDE fanout.** Shell out to the materializer's
+   `--post-generate` mode, which stages the just-generated Tier-3
+   skill + command from `.claude/skills/{name}/` and
+   `.claude/commands/{name}.md` into `.rulesync/skills/{name}/` and
+   `.rulesync/commands/{name}.md`, then invokes
+   `npx -y rulesync generate` with the targets configured in
+   `.config/documents/rulesync.jsonc`:
+
+   ```bash
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/materialize.py" \
+     -C <repo> --post-generate {name}
    ```
-   ## Generated: {display} document type
 
-   **Type definition:** .config/documents/types/{name}.md
-   **Skill:** .claude/skills/{name}/SKILL.md
-   **Command:** .claude/commands/{name}.md
-   **Template:** .claude/skills/{name}/templates/{name}.md (if applicable)
-   **Location:** {resolved path from root document}
-   **Custom logic:** sidecar present (N extra ops, M hooks) | no sidecar
+   Three possible statuses (same shape as the Tier-2 path):
 
-   Run `/{name} create` to create your first document.
-   ```
+   - **`ok`** — rulesync ran. `.cursor/skills/{name}/`,
+     `.codex/skills/{name}/`, and any other configured target's
+     output is on disk. Done.
+   - **`failed`** — rulesync exited non-zero. Surface stderr;
+     decide with the user whether to retry or AI-fallback.
+   - **`deferred`** — `npx` isn't on PATH. **AI fallback:** read
+     `${CLAUDE_PLUGIN_ROOT}/skills/document-upgrade/references/target-formats.md`
+     and for each target in `fanout.targets`, write
+     `<target-dir>/skills/{name}/SKILL.md` and the appropriate
+     per-target command file by hand, applying the documented
+     frontmatter rules. Same procedure as the Tier-2 path
+     (`/document:upgrade` step 5.8).
 
-   The confirmation prose must report sidecar presence and what was spliced (extra operations appended, pre/post hooks added to which target operations).
+   This step makes Tier-3 generation a single command: the new type's
+   skill appears in every configured harness without requiring the
+   user to remember to run `/document:upgrade` afterwards.
 
-**Output:** skill path, command path, template path (if any), resolved location.
+10. **Report.** Confirm what was generated:
+    ```
+    ## Generated: {display} document type
+
+    **Type definition:** .config/documents/types/{name}.md
+    **Skill:** .claude/skills/{name}/SKILL.md
+    **Command:** .claude/commands/{name}.md
+    **Template:** .claude/skills/{name}/templates/{name}.md (if applicable)
+    **Location:** {resolved path from root document}
+    **Custom logic:** sidecar present (N extra ops, M hooks, K subscriptions) | no sidecar
+    **Cross-IDE mirrors:** cursor, codexcli (or whatever rulesync.jsonc lists) | AI-fallback if npx missing
+
+    Run `/{name} create` to create your first document.
+    ```
+
+    The confirmation prose must report sidecar presence and what was spliced (extra operations appended, pre/post hooks added to which target operations, subscriptions registered with which events, stub handler operations generated for any subscription handlers that didn't already exist), plus which targets received output through rulesync vs the AI fallback.
+
+**Output:** skill path, command path, template path (if any), resolved location, fanout status.
 </generate_operation>
 
 ## regenerate — Update a generated skill from its type definition
@@ -518,9 +650,20 @@ works identically when the plugin is absent.
 2. **Read the current type definition, sidecar, and root document.** Also read `.config/documents/types/{name}.skill.md` if it exists — always reload fresh, never preserve manual edits to the generated SKILL.md. Compare paths and structure to current generated skill.
 
 3. **Regenerate.** Re-run the `generate` operation. Overwrite the skill,
-   template, and command files.
+   template, and command files. **Preserve `materialized`:** if a newly
+   generated file is identical to the existing one in every line except its
+   `materialized:` provenance date, keep the existing file's `materialized`
+   value. This keeps a no-op regeneration byte-identical, and makes
+   `materialized` mean "date of last actual change" — which `list-types`
+   staleness and `/document:upgrade` drift detection rely on.
 
-4. **Report diff.** Show what changed:
+4. **Cross-IDE fanout.** Re-running generate (step 3) already includes
+   its own step 9 (`--post-generate`), so the configured cross-IDE
+   targets are refreshed automatically. No additional invocation is
+   needed here. The fanout status flows through into the diff
+   report.
+
+5. **Report diff.** Show what changed:
    - New fields added
    - Fields removed
    - Sections changed
@@ -529,10 +672,13 @@ works identically when the plugin is absent.
    - Sidecar added / removed
    - Sidecar extra operations added or removed
    - Sidecar hooks added or removed
+   - Sidecar subscriptions added, removed, or changed (event, handler, or condition)
+   - Stub handler operations generated, removed, or renamed
    - Creation mode changed
    - Path changed (from root document update)
+   - Cross-IDE mirrors refreshed (which targets, via rulesync or AI fallback)
 
-**Output:** files updated, diff summary.
+**Output:** files updated, diff summary, fanout status.
 </regenerate_operation>
 
 ## list-types — Show all defined document types
@@ -550,10 +696,16 @@ works identically when the plugin is absent.
 7. Display as table:
 
    | Document Type | Description | Location | Skill | Features | Custom Logic | Status |
-   | {display} | {description} | {path from root} | generated/missing/stale | C (collections), F (facets), H (hosted by parent) | yes (N ops, M hooks) / no | enabled/disabled |
+   | {display} | {description} | {path from root} | generated/missing/stale | C (collections), F (facets), H (hosted by parent) | yes (N ops, M hooks, K subs) / no | enabled/disabled |
 
-A skill is "stale" if the type definition file is newer than the generated
-skill's `materialized` date.
+A skill's "stale" flag is whatever `/document:upgrade` would assign — a
+mismatch in `factory-version`, `generator-version`, or the recorded
+`type-definition-hash` against the current type-definition file. To compute
+it, shell out to `${CLAUDE_PLUGIN_ROOT}/scripts/upgrade-scan.py -C <repo>`
+and use its classification; this is the same comparator
+`/document:upgrade` uses, so `list-types` and `/document:upgrade` never
+disagree about which skills are stale. (The older mtime-based check was
+replaced because it broke after a fresh `git clone` or `git checkout`.)
 
 **Output:** type count, generated count, stale count.
 </list_types_operation>
@@ -569,10 +721,14 @@ skill's `materialized` date.
    and exit.
 2. Create `.config/documents/root.md` with:
    - Project identity from directory name or provided name
+   - A `## Configuration` section seeded with `root-type`, `root-location`,
+     `schema-version: 1`, and dispatch caps `max-fanout: 12`, `max-depth: 1`,
+     `max-stubs: 5` (defaults; user can edit them later)
+   - `## Conventions` section with `naming-convention: Title Case`
    - Empty `## Document Types` section
 3. Scan for existing type definitions at `.config/documents/types/*.md`
    and add them to the root with default paths.
-4. Report: "Initialized document root for {project}. {N} types registered."
+4. Report: "Initialized document root for {project}. {N} types registered. Dispatch caps seeded with defaults (max-fanout=12, max-depth=1, max-stubs=5)."
 
 **Output:** root document path, types registered count.
 </init_operation>

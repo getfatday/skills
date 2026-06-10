@@ -1,5 +1,5 @@
 ---
-type: avatar-research
+type: team-member-research
 source-type: "{{book|blog|talk|podcast|interview|paper}}"
 expert: "{{Expert Name}}"
 date-published: "{{YYYY-MM-DD or YYYY}}"

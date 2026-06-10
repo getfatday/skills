@@ -1,6 +1,6 @@
 # Custom Logic Sidecar Schema
 
-A sidecar file lets a document type extend the skill that `document-define` generates. It can declare extra operations and add inline pre/post hooks to the eight default operations. `document-define` always regenerates the skill from the sidecar. Users edit the sidecar, never the generated `SKILL.md`.
+A sidecar file lets a document type extend the skill that `document-define` generates. It can declare extra operations, add inline pre/post hooks to the eight default operations, and subscribe to dispatched events. `document-define` always regenerates the skill from the sidecar. Users edit the sidecar, never the generated `SKILL.md`.
 
 ## File Location and Discovery
 
@@ -12,7 +12,7 @@ A sidecar file lets a document type extend the skill that `document-define` gene
 
 ## File Structure
 
-The sidecar is plain markdown. Only two H2 sections are recognized. Both are optional individually, but the file must contain at least one of them to be meaningful.
+The sidecar is plain markdown. Three H2 sections are recognized: `## Operations`, `## Hooks`, and `## Subscriptions`. All are optional individually, but the file must contain at least one of them to be meaningful.
 
 ```markdown
 # {Display Name} — Custom Logic
@@ -27,6 +27,12 @@ The sidecar is plain markdown. Only two H2 sections are recognized. Both are opt
 
 ### post-{op-name}
 {markdown guidance to run after the target op's Steps list}
+
+## Subscriptions
+| event             | handler         | condition                              |
+|-------------------|-----------------|----------------------------------------|
+| document-created  | on-source       | source-type in {web, slack, pdf}       |
+| entity-mentioned  | hot-memory      | always                                 |
 ```
 
 Rules:
@@ -34,8 +40,9 @@ Rules:
 - Top-level H1 is optional and ignored by the splicer. It exists for humans.
 - `## Operations` may contain zero or more H3 items. Each H3 is an operation name.
 - `## Hooks` may contain zero or more H3 items. Each H3 is a hook name following the `pre-{op}` or `post-{op}` grammar.
-- Any H2 other than `## Operations` or `## Hooks` is ignored with a warning.
-- Content under an H2 that is not inside an H3 is ignored.
+- `## Subscriptions` is a single markdown table — header row, divider row, then one row per subscription. Columns: `event`, `handler`, `condition`.
+- Any H2 other than `## Operations`, `## Hooks`, or `## Subscriptions` is ignored with a warning.
+- Content under an H2 that is not inside an H3 (Operations / Hooks) or a table row (Subscriptions) is ignored.
 
 ## Allowed H3 Names
 
@@ -81,9 +88,33 @@ For each H3 under `## Hooks`:
    - `post-{op}`: insert the hook body immediately after the Steps list and before the `**Output:**` line, prefixed with a `**Post-hook:**` label. If multiple `post-{op}` hooks exist, concatenate in file order under one `**Post-hook:**` label.
 5. Hook bodies are copied verbatim. The splicer does not reformat markdown inside them.
 
+### Subscriptions
+
+`## Subscriptions` declares which dispatched events this type wants to receive and which handler operation to run when they fire. Recognized event names and the closed condition grammar are documented in `skills/document-dispatch/references/event-schema.md`.
+
+For each row under `## Subscriptions`:
+
+1. Validate the `event` column against the reserved event names (`document-created`, `document-updated`, `link-created`, `entity-mentioned`, `lifecycle-changed`). Unknown events abort generation with file path and row number.
+2. Validate the `condition` column against the closed grammar. Parse failures abort generation with file path and row number, BEFORE any files are written. The grammar is `always` | `<field> <op> <literal>` | `<field> in {<lit>, ...}` where `<op>` is `==` or `!=`. No `and`, `or`, `not`, or parentheses.
+3. Resolve the `handler` column against the union of (a) the eight default operations, (b) custom operations declared in the same sidecar's `## Operations`, and (c) handler names that don't yet exist anywhere — these become stub operations.
+4. Splice into the generated SKILL.md:
+   - **Handler precedence:** if the handler name already names a default op or a sidecar-declared extra op, the subscription reuses that op. No new block is generated; the splicer is a no-op for that operation block.
+   - **Stub generation:** if the handler name is not a default op and not declared in `## Operations`, append a new `<{handler}_operation>` block to the generated SKILL.md, AFTER all default blocks AND after all sidecar-declared extra-op blocks. The body is `**Inputs:** event payload (JSON on stdin).`, then `**Steps:**` with one item `1. # TODO: implement {handler} — payload schema documented in references/event-schema.md.`, then `**Output:** describe the side effect.`. The user fills in the body. Stub generation never overwrites existing content because the generated SKILL.md is rewritten in full each `generate`/`regenerate`.
+   - **`<subscriptions>` block:** append a `<subscriptions>` block AFTER the `<operations>` block (sibling, not nested). It lists the type's subscriptions in source order so `/{type}` users can see which events the skill listens to. Format:
+     ```
+     <subscriptions>
+     ## Subscriptions
+
+     | event              | handler            | condition |
+     |--------------------|--------------------|-----------|
+     | entity-mentioned   | log-mention        | always    |
+     </subscriptions>
+     ```
+   - **Command routes:** for each handler that became a stub op (case c above), add a route to `.claude/commands/{name}.md`: `/{name} {handler} → {handler} operation`. Default-op and existing-extra-op handlers reuse their existing routes.
+
 ### Idempotency
 
-Regenerating from the same type definition and sidecar must produce byte-identical output. The splicer does not depend on existing skill contents. The generated `SKILL.md` is rewritten in full each time.
+Regenerating from the same type definition and sidecar must produce byte-identical output, with one exception: the `materialized:` provenance date. The splicer does not depend on existing skill contents, and the generated `SKILL.md` is rewritten in full each time — but `regenerate` preserves the existing `materialized` value when the rest of the file is unchanged (see the `regenerate` operation in the `document-define` SKILL.md). So a no-op regeneration is byte-identical including `materialized`; a regeneration that genuinely changes the body updates `materialized` to the current date. A type with no `## Subscriptions` section produces no `<subscriptions>` block and no stub handler operations.
 
 ## Complete Example
 
@@ -188,8 +219,10 @@ The generated command file gains a route:
 
 The splicer reports and refuses to generate when any of the following occur. It never silently ignores a malformed sidecar.
 
-- **Sidecar lacks required content.** The file exists but contains neither `## Operations` nor `## Hooks` sections with any H3 items. Report: "Sidecar {path} has no Operations or Hooks. Remove the file or add content."
-- **Unknown H2 section.** Any H2 other than `## Operations` or `## Hooks`. Warn: "Ignoring unknown H2 '{heading}' in {path}. Only '## Operations' and '## Hooks' are recognized."
+- **Sidecar lacks required content.** The file exists but contains neither `## Operations`, `## Hooks`, nor `## Subscriptions` sections with any rows. Report: "Sidecar {path} has no Operations, Hooks, or Subscriptions. Remove the file or add content."
+- **Unknown H2 section.** Any H2 other than `## Operations`, `## Hooks`, or `## Subscriptions`. Warn: "Ignoring unknown H2 '{heading}' in {path}. Only '## Operations', '## Hooks', and '## Subscriptions' are recognized."
+- **Unknown subscription event.** The `event` column under `## Subscriptions` is not one of the reserved event names. Report: "Subscription on row {n} of {path} targets unknown event '{name}'. Known events: {list}."
+- **Bad subscription condition.** The `condition` column does not parse against the closed grammar. Report: "Subscription on row {n} of {path} has unparseable condition '{expr}'. Allowed: 'always' | <field> <op> <literal> | <field> in {<lit>, ...}."
 - **Malformed hook name.** An H3 under `## Hooks` does not match `pre-{op}` or `post-{op}`. Report: "Hook '{heading}' in {path} does not match 'pre-{op}' or 'post-{op}' grammar."
 - **Hook references an unknown op.** The `{op}` portion of a hook H3 is neither a default op nor a custom op declared in the same sidecar. Report: "Hook '{heading}' targets unknown operation '{op}'. Known ops: {default list}, {sidecar custom list}."
 - **Duplicate op name within the sidecar.** Two H3s under `## Operations` share the same name. Report: "Duplicate operation '{op}' declared twice in {path}. Remove one."

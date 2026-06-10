@@ -1,28 +1,32 @@
 {
   "version": "1.0.0",
-  "avatars": [
-    { "name": "avatar-kent-beck", "expert": "Kent Beck", "domains": ["engineering", "tdd", "software-design", "extreme-programming", "empirical-design"] },
-    { "name": "avatar-robert-martin", "expert": "Robert C. Martin", "domains": ["engineering", "tdd", "software-design", "clean-code", "solid", "software-architecture"] },
-    { "name": "avatar-eric-evans", "expert": "Eric Evans", "domains": ["domain-driven-design", "software-design", "strategic-design", "domain-modeling"] },
-    { "name": "avatar-gene-kim", "expert": "Gene Kim", "domains": ["devops", "flow", "continuous-delivery", "developer-experience", "organizational-change"] },
-    { "name": "avatar-boris-cherny", "expert": "Boris Cherny", "domains": ["ai-native-development", "context-engineering", "claude-code", "developer-tooling"] },
-    { "name": "avatar-peter-steinberger", "expert": "Peter Steinberger", "domains": ["ai-agent-architecture", "cli-design", "mcp", "autonomous-agents", "ai-native-development"] },
-    { "name": "avatar-eliyahu-goldratt", "expert": "Eliyahu Goldratt", "domains": ["operations", "constraints", "throughput", "project-management", "systems-thinking"] },
-    { "name": "avatar-nir-eyal", "expert": "Nir Eyal", "domains": ["growth", "behavioral-design", "habit-formation", "engagement"] },
-    { "name": "avatar-will-larson", "expert": "Will Larson", "domains": ["platform-leadership", "org-design", "team-formation", "engineering-strategy"] },
-    { "name": "avatar-andy-grove", "expert": "Andy Grove", "domains": ["management", "leadership", "production-management", "strategic-planning"] },
-    { "name": "avatar-marty-cagan", "expert": "Marty Cagan", "domains": ["product", "product-strategy", "team-empowerment", "product-leadership"] },
-    { "name": "avatar-teresa-torres", "expert": "Teresa Torres", "domains": ["product", "product-discovery", "customer-research", "assumption-testing"] },
-    { "name": "avatar-eric-ries", "expert": "Eric Ries", "domains": ["product", "lean-startup", "experimentation", "innovation-accounting"] },
-    { "name": "avatar-martin-fowler", "expert": "Martin Fowler", "domains": ["engineering", "software-design", "software-architecture", "refactoring", "microservices"] },
-    { "name": "avatar-lisa-crispin", "expert": "Lisa Crispin", "domains": ["testing", "qa-strategy", "test-automation", "engineering"] },
-    { "name": "avatar-don-norman", "expert": "Don Norman", "domains": ["ux-design", "human-centered-design", "usability", "interaction-design"] },
-    { "name": "avatar-daniele-procida", "expert": "Daniele Procida", "domains": ["technical-writing", "documentation", "developer-experience"] },
-    { "name": "avatar-antonio-nieto-rodriguez", "expert": "Antonio Nieto-Rodriguez", "domains": ["program-management", "strategic-portfolio", "benefits-realization", "project-leadership"] },
-    { "name": "avatar-joshua-teter", "expert": "Joshua Teter", "domains": ["technical-program-management", "cross-functional-delivery", "stakeholder-management", "risk-management"] }
+  "members": [
+    { "name": "team-member-kent-beck", "expert": "Kent Beck", "domains": ["engineering", "tdd", "software-design", "extreme-programming", "empirical-design"] },
+    { "name": "team-member-robert-martin", "expert": "Robert C. Martin", "domains": ["engineering", "tdd", "software-design", "clean-code", "solid", "software-architecture"] },
+    { "name": "team-member-eric-evans", "expert": "Eric Evans", "domains": ["domain-driven-design", "software-design", "strategic-design", "domain-modeling"] },
+    { "name": "team-member-gene-kim", "expert": "Gene Kim", "domains": ["devops", "flow", "continuous-delivery", "developer-experience", "organizational-change"] },
+    { "name": "team-member-boris-cherny", "expert": "Boris Cherny", "domains": ["ai-native-development", "context-engineering", "claude-code", "developer-tooling"] },
+    { "name": "team-member-peter-steinberger", "expert": "Peter Steinberger", "domains": ["ai-agent-architecture", "cli-design", "mcp", "autonomous-agents", "ai-native-development"] },
+    { "name": "team-member-eliyahu-goldratt", "expert": "Eliyahu Goldratt", "domains": ["operations", "constraints", "throughput", "project-management", "systems-thinking"] },
+    { "name": "team-member-nir-eyal", "expert": "Nir Eyal", "domains": ["growth", "behavioral-design", "habit-formation", "engagement"] },
+    { "name": "team-member-will-larson", "expert": "Will Larson", "domains": ["platform-leadership", "org-design", "team-formation", "engineering-strategy"] },
+    { "name": "team-member-andy-grove", "expert": "Andy Grove", "domains": ["management", "leadership", "production-management", "strategic-planning"] },
+    { "name": "team-member-marty-cagan", "expert": "Marty Cagan", "domains": ["product", "product-strategy", "team-empowerment", "product-leadership"] },
+    { "name": "team-member-teresa-torres", "expert": "Teresa Torres", "domains": ["product", "product-discovery", "customer-research", "assumption-testing"] },
+    { "name": "team-member-eric-ries", "expert": "Eric Ries", "domains": ["product", "lean-startup", "experimentation", "innovation-accounting"] },
+    { "name": "team-member-martin-fowler", "expert": "Martin Fowler", "domains": ["engineering", "software-design", "software-architecture", "refactoring", "microservices"] },
+    { "name": "team-member-lisa-crispin", "expert": "Lisa Crispin", "domains": ["testing", "qa-strategy", "test-automation", "engineering"] },
+    { "name": "team-member-don-norman", "expert": "Don Norman", "domains": ["ux-design", "human-centered-design", "usability", "interaction-design"] },
+    { "name": "team-member-daniele-procida", "expert": "Daniele Procida", "domains": ["technical-writing", "documentation", "developer-experience"] },
+    { "name": "team-member-antonio-nieto-rodriguez", "expert": "Antonio Nieto-Rodriguez", "domains": ["program-management", "strategic-portfolio", "benefits-realization", "project-leadership"] },
+    { "name": "team-member-joshua-teter", "expert": "Joshua Teter", "domains": ["technical-program-management", "cross-functional-delivery", "stakeholder-management", "risk-management"] },
+    { "name": "team-member-april-dunford", "expert": "April Dunford", "domains": ["product-marketing", "positioning", "gtm-strategy", "sales-enablement"] },
+    { "name": "team-member-brene-brown", "expert": "Brene Brown", "domains": ["leadership", "vulnerability", "trust", "courage", "team-culture"] },
+    { "name": "team-member-patrick-lencioni", "expert": "Patrick Lencioni", "domains": ["team-health", "organizational-health", "leadership", "team-dynamics"] },
+    { "name": "team-member-seth-godin", "expert": "Seth Godin", "domains": ["marketing", "differentiation", "tribes", "storytelling", "permission-marketing"] }
   ],
   "teams": [
-    { "name": "team-engineering", "domains": ["engineering", "tdd", "software-design"], "members": ["avatar-kent-beck", "avatar-robert-martin", "avatar-eric-evans", "avatar-martin-fowler", "avatar-lisa-crispin"] },
-    { "name": "team-product", "domains": ["product"], "members": ["avatar-marty-cagan", "avatar-teresa-torres", "avatar-eric-ries"] }
+    { "name": "team-engineering", "domains": ["engineering", "tdd", "software-design"], "members": ["team-member-kent-beck", "team-member-robert-martin", "team-member-eric-evans", "team-member-martin-fowler", "team-member-lisa-crispin"] },
+    { "name": "team-product", "domains": ["product"], "members": ["team-member-marty-cagan", "team-member-teresa-torres", "team-member-eric-ries"] }
   ]
 }

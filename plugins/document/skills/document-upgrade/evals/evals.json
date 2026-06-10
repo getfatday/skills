@@ -1,0 +1,35 @@
+{
+  "skill_name": "document-upgrade",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "The document plugin updated. Bring this repo up to date.",
+      "expected_output": "Runs upgrade-scan against the cwd, parses the JSON, presents a plan grouped by action (regenerate / migrate / confirm / orphan / detached), and waits for explicit confirmation before applying. When everything is current, says 'Nothing to do — N artifacts, all current' rather than emitting an empty plan with no explanation. Never silently overwrites anything.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Run `/document:upgrade --dry-run` — I just want to see what would change.",
+      "expected_output": "Scans and presents the plan exactly as in the normal run, but stops immediately after the plan — applies nothing. No `AskUserQuestion` prompts are issued; no files are modified.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Upgrade this repo. There's a PRD I rewrote by hand and I want to keep my version.",
+      "expected_output": "Detects that the PRD's generated body has drifted from a fresh regeneration (promotes it from `current` to `hand-edited`), shows the unified diff before prompting, and offers three options via AskUserQuestion: Overwrite (regenerate, losing edits), Detach (add `provenance: detached`, skip permanently), Skip (revisit on next upgrade). Does not regenerate the PRD without an explicit choice.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "The installed plugin is at 0.7.0 but a couple of files in this repo show factory-version 0.8.0. Upgrade them.",
+      "expected_output": "Recognizes the `ahead` artifacts in the scanner output and REFUSES to run. Reports which files are ahead and tells the user to install the newer plugin or mark a file `provenance: detached` if they intend to keep it ahead. Migrations are forward-only — never downgrade-regenerates.",
+      "files": []
+    },
+    {
+      "id": 5,
+      "prompt": "My root.md and type definitions are still at schema-version 1 but the new plugin is at 2. Migrate them.",
+      "expected_output": "Reads the migration step(s) `## 1 → 2` from `schema-migrations.md`, applies them to root.md and each type definition (idempotent, forward-only), and bumps each file's `schema-version` to 2. Reports per-file what was migrated. A re-run is a no-op (all files now at version 2). Reports `migration-needed` count of zero after the run.",
+      "files": []
+    }
+  ]
+}
