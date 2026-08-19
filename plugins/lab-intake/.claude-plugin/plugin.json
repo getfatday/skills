@@ -1,0 +1,17 @@
+{
+  "name": "lab-intake",
+  "version": "0.1.1",
+  "description": "Karpathy-style knowledge intake for any repo: write-once raw capture with provenance, distilled linked notes, a one-line-per-page index, and an append-only journal of write-once fragments — enforced by hooks, not prose. /lab-intake:init scaffolds your repo and writes the durable guard rules; capture triggers on phrases like \"note this\".",
+  "author": {
+    "name": "Ian Anderson",
+    "url": "https://github.com/getfatday"
+  },
+  "keywords": [
+    "lab",
+    "capture",
+    "notes",
+    "journal",
+    "knowledge",
+    "wiki"
+  ]
+}

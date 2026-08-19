@@ -1,0 +1,23 @@
+{
+  "name": "lab-loop",
+  "version": "0.1.0",
+  "description": "Hypothesis-driven experiments for any repo: every idea becomes a spec with 3-5 binary pass/fail assertions BEFORE anything runs; fixed budgets with halt-on-breach; verdicts (keep/discard/refine) decided mechanically from assertions; every run journaled, including failures. A deterministic preflight gates runs. Requires lab-intake (the journal and capture discipline live there).",
+  "author": {
+    "name": "Ian Anderson",
+    "url": "https://github.com/getfatday"
+  },
+  "dependencies": [
+    {
+      "name": "lab-intake",
+      "version": ">=0.1.0"
+    }
+  ],
+  "keywords": [
+    "experiment",
+    "hypothesis",
+    "assertions",
+    "verdict",
+    "preflight",
+    "journal"
+  ]
+}

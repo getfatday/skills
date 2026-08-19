@@ -1,0 +1,29 @@
+{
+  "description": "lab-loop guards: deterministic preflight gate on run-shaped commands (PreToolUse deny), advisory spec-registration backstop on tinker-shaped commits (PreToolUse, fails open).",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "if": "Bash(*claude -p*)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/preflight-gate.py\"",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "if": "Bash(*git commit*)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "out=$(python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/commit-backstop.py\" \"${CLAUDE_PROJECT_DIR:-.}\" 2>/dev/null) || true; [ -n \"$out\" ] && echo \"$out\"; exit 0",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

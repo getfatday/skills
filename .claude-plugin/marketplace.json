@@ -1,39 +1,114 @@
 {
   "name": "getfatday-skills",
-  "owner": { "name": "getfatday" },
-  "metadata": { "description": "Personal Claude Code plugins and supporting CLIs" },
+  "owner": {
+    "name": "getfatday"
+  },
+  "metadata": {
+    "description": "Personal Claude Code plugins and supporting CLIs"
+  },
   "plugins": [
     {
       "name": "imdb",
       "source": "./plugins/imdb",
       "description": "IMDB movie and TV data. Search films, look up cast and box office, browse Top 250 movies/shows, and check upcoming releases. Commands: /imdb, /imdb:movie, /imdb:person, /imdb:top",
-      "author": { "name": "getfatday" },
+      "author": {
+        "name": "getfatday"
+      },
       "category": "entertainment",
-      "keywords": ["imdb", "movies", "tv", "ratings", "box-office"]
+      "keywords": [
+        "imdb",
+        "movies",
+        "tv",
+        "ratings",
+        "box-office"
+      ]
     },
     {
       "name": "dream-team",
       "source": "./plugins/dream-team",
-      "description": "Factory plugin for AI expert teams — recruit experts, materialize self-sufficient /consult-/coach-/plan-/review workflows into your repo, keep them working after plugin uninstall. Multi-IDE (Claude+Cursor+Copilot) with blueprint-integrity hooks.",
-      "author": { "name": "getfatday" },
+      "description": "Factory plugin for AI expert teams \u2014 recruit experts, materialize self-sufficient /consult-/coach-/plan-/review workflows into your repo, keep them working after plugin uninstall. Multi-IDE (Claude+Cursor+Copilot) with blueprint-integrity hooks.",
+      "author": {
+        "name": "getfatday"
+      },
       "category": "framework",
-      "keywords": ["team-member", "expert", "agent", "team", "orchestration", "factory", "framework"]
+      "keywords": [
+        "team-member",
+        "expert",
+        "agent",
+        "team",
+        "orchestration",
+        "factory",
+        "framework"
+      ]
     },
     {
       "name": "document",
       "source": "./plugins/document",
-      "description": "Document type system — define document types and generate per-type management skills with lifecycle, relationships, enrichment, verification, and CRUD operations, plus a git-derived change-event log over the portfolio",
-      "author": { "name": "getfatday" },
+      "description": "Document type system \u2014 define document types and generate per-type management skills with lifecycle, relationships, enrichment, verification, and CRUD operations, plus a git-derived change-event log over the portfolio",
+      "author": {
+        "name": "getfatday"
+      },
       "category": "meta-skills",
-      "keywords": ["document", "type-system", "meta-skill", "skill-generator", "lifecycle", "enrichment", "events", "event-log", "cdc", "audit"]
+      "keywords": [
+        "document",
+        "type-system",
+        "meta-skill",
+        "skill-generator",
+        "lifecycle",
+        "enrichment",
+        "events",
+        "event-log",
+        "cdc",
+        "audit"
+      ]
     },
     {
       "name": "copilot-money",
       "source": "./plugins/copilot-money",
       "description": "Personal finance data from Copilot Money. Check account balances, search transactions, view budget vs actuals, track spending patterns, and analyze cash flow. Commands: /copilot-money, /copilot-money:transactions, /copilot-money:budget, /copilot-money:summary, /copilot-money:status",
-      "author": { "name": "getfatday" },
+      "author": {
+        "name": "getfatday"
+      },
       "category": "personal-finance",
-      "keywords": ["finance", "copilot-money", "budgets", "transactions", "spending"]
+      "keywords": [
+        "finance",
+        "copilot-money",
+        "budgets",
+        "transactions",
+        "spending"
+      ]
+    },
+    {
+      "name": "lab-intake",
+      "source": "./plugins/lab-intake",
+      "description": "Durable knowledge intake for research-style repos: capture raw notes verbatim, distill and index them, and protect every record with write-once guards. Commands: /lab-intake:init, /lab-intake:intake",
+      "author": {
+        "name": "getfatday"
+      },
+      "category": "productivity",
+      "keywords": [
+        "research",
+        "notes",
+        "capture",
+        "knowledge-base",
+        "write-once"
+      ]
+    },
+    {
+      "name": "lab-loop",
+      "source": "./plugins/lab-loop",
+      "description": "Hypothesis-driven experiment loop: register specs with binary pass/fail assertions, run pre-flight checks, and record mechanical keep/refine/discard verdicts in an append-only journal. Extends lab-intake. Commands: /lab-loop:init, /lab-loop:hypothesis",
+      "author": {
+        "name": "getfatday"
+      },
+      "category": "productivity",
+      "keywords": [
+        "experiments",
+        "hypothesis",
+        "science",
+        "verdicts",
+        "journal"
+      ]
     }
   ]
 }
