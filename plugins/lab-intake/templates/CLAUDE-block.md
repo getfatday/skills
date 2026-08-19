@@ -26,8 +26,21 @@ Any new knowledge or agent self-reference file enters through the `intake` skill
 3. **Linked** — reference it from a relevant existing doc and add one line to `{{INDEX_FILE}}`.
 4. **Journaled** — add one write-once fragment under `{{JOURNAL_DIR}}/` (frontmatter `id:`
    monotonic, `date:`; no author names — git blame is attribution) noting what was added and why.
+5. **Committed** — one commit per capture, authored by the capturer, containing exactly that
+   capture's files plus the refreshed `DASHBOARD.md` when the capture changed what it
+   projects. The (commit sha, author email) pair is the capture's id; until the commit lands
+   the capture is one Bash command from unrecoverable.
 
 New write-once files (raw files, journal fragments) are created via a Bash `tee` heredoc: the
 settings deny protects existing records; creation flows through `tee`.
+
+### Identity is git's job, and the name rule is scoped
+
+Raw bodies stay **verbatim** even when the material names its own speaker — the name is part
+of the record, and identity resolves through the header's `captured-by:` plus the landing
+commit. Everything you *author* rather than transcribe — distilled notes, the index line, the
+journal fragment, `DASHBOARD.md`, and your commit subject and body — carries no display names:
+refer to people by canonical email or not at all. Display names live only in a committed
+`contributors.json` at the repo root; do not copy one out of it into anything else.
 
 <!-- END lab-intake rules -->

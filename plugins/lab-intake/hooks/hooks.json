@@ -1,9 +1,9 @@
 {
-  "description": "lab-intake guards: write-once raw + journal fragments (PreToolUse), capture-intent context (UserPromptSubmit), standing rules + drift check (SessionStart), unjournaled-work backstop (Stop).",
+  "description": "lab-intake guards: write-once raw + journal fragments incl. a Bash mistake-net branch (PreToolUse), capture-intent context (UserPromptSubmit), standing rules + drift check + uncommitted-capture warning + stale-dashboard check (SessionStart), unjournaled-work backstop (Stop), dashboard refresh (SessionStart + Stop).",
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Edit|Write|NotebookEdit",
+        "matcher": "Edit|Write|NotebookEdit|Bash",
         "hooks": [
           {
             "type": "command",
@@ -32,6 +32,21 @@
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/drift-check.py\"",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-recovery-warning.py\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/compile-dashboard.py\" --check || echo \"lab-intake: DASHBOARD.md was stale at session start (the next hook refreshes it) — review and commit the refreshed copy.\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/compile-dashboard.py\" --quiet",
+            "timeout": 10
           }
         ]
       }
@@ -42,6 +57,11 @@
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/stop-backstop.py\"",
+            "timeout": 15
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/compile-dashboard.py\" --quiet",
             "timeout": 15
           }
         ]

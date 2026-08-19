@@ -37,9 +37,10 @@ them. Run `/lab-intake:init` once per repository to scaffold everything.
    ```
    tee "<raw dir>/<YYYY-MM-DD>-<slug>.md" << 'EOF'
    ---
-   source: <person, URL, meeting, or document this came from>
+   source: <URL, meeting, or document — or the literal word `author` when the capturer is the origin>
    date: <YYYY-MM-DD the material was produced or received>
    context: <one line — why this is landing in the repository>
+   captured-by: <git author email — filled mechanically from `git config user.email`, never typed prose>
    ---
 
    <the verbatim material, untouched, below the header>
@@ -48,6 +49,27 @@ them. Run `/lab-intake:init` once per repository to scaffold everything.
 
    Raw files are never edited after creation (a PreToolUse hook denies it); distillations link
    to them, and disagreements resolve in favor of raw.
+
+   **Identity discipline.** `source:` carries *external* provenance only — first-person
+   dictation is `source: author`. Fill `captured-by:` mechanically from
+   `git config user.email`; it must equal the capture commit's author email. Third-party
+   people who are *spoken about* are pseudonymized at capture ([P2], [P3], ...): display
+   names live only in a committed `contributors.json` at the repo root.
+
+   **The raw body is verbatim by design — do not scrub names out of it.** If the material
+   names its own speaker ("I, <name>, verified ..."), file it exactly as given. The name is
+   part of the record you were asked to preserve, identity still resolves mechanically
+   through `captured-by` plus the landing commit, and raw files are write-once so an
+   "improved" body could never be corrected later. Verbatim fidelity wins here; the
+   name-freedom rule binds the *derived* surfaces instead (steps 2-5).
+
+   **Derived surfaces carry no display names.** Everything you author rather than transcribe
+   — distilled notes and studies, the index line, the journal fragment, the dashboard, and
+   your commit subject and body — refers to people by canonical email or not at all. You
+   write those surfaces, so nothing forces a name into them: if a person must be referenced,
+   use the canonical email; if the point survives without the reference, drop it. Do not
+   look a display name up out of `contributors.json` in order to put it somewhere else —
+   that map is the one place it belongs, and the author field already carries identity.
 1. **Classify** what you're capturing — one right home:
    - A study or an external finding → a page in the directory holding the index file
      (default `research/<topic>.md`).
@@ -89,10 +111,48 @@ them. Run `/lab-intake:init` once per repository to scaffold everything.
    Fragments are write-once — create the file once and never modify it (the hook denies
    edits); no author names in the text (git blame is attribution). Refresh the compiled view
    with `python3 scripts/compile-journal.py` when useful.
+5. **Commit** — a capture is not complete until its commit lands. Land ONE commit per capture
+   containing exactly this capture's files (the raw file and/or note, its index line, its
+   journal fragment, and the refreshed `DASHBOARD.md` if the capture changed what it
+   projects), authored by the capturer. The (capture-commit sha, git author email)
+   pair IS the capture's unique id — the only mechanical join a cold reader has. It resolves
+   permanently via `git log --diff-filter=A --follow --format=%H -- <path>`; the sha is never
+   written into the file itself (raw files are write-once, so it could never be back-filled).
+   Until this commit lands, the capture is one Bash command from unrecoverable — the
+   session-start warning will name any capture file left uncommitted.
+
+   **The commit message carries no display names.** Say what landed and why; refer to people
+   by canonical email or not at all. The author field already records who did this, and
+   unlike an artifact a commit message cannot be rewritten once it is pushed.
+
+   **`DASHBOARD.md` is committed, not ignored.** It is a compiled projection this plugin
+   owns, and a stale or untracked copy is the failure mode. You do not need to run the
+   compiler: the plugin's own SessionStart and Stop hooks refresh it for you — so `git add`
+   the refreshed `DASHBOARD.md` along with the rest of the capture and let it ride the same
+   commit, and a cold reader's checkout shows the status you saw. Never hand-edit it, and
+   never copy the compiler into this repository — it lives in the plugin, and a second copy
+   here is exactly the drift the portability guard exists to prevent. It never contains a
+   value that was only true at render time: a ledger row whose line is not yet committed
+   renders with no creator at all rather than a placeholder, so committing the dashboard
+   cannot freeze a transient state.
+
+## Recovery doctrine
+
+Raw files and journal fragments are write-once, and committed history is the durability
+floor. Destruction of a committed file — by any command, mistake or otherwise — is
+recoverable: `git checkout <sha> -- <path>` restores it byte-identical and is the sanctioned
+response to any wipe. An uncommitted capture has no floor: nobody's capture is safe until it
+is committed. Where the repo has a remote, push early — protected branches and commit signing
+harden history and attribution server-side (guidance only; nothing here depends on a remote).
 
 ## Rules
 
 - One fact, one home. If knowledge would live in two places, pick one and link from the other.
 - Sources stay attached: external claims keep their URLs.
 - Never edit raw files, past journal fragments, or a human-only directives file.
+- Names are git's job: the capturer is `captured-by` + the capture commit; spoken third
+  parties are pseudonymized ([P2], [P3], ...) with display names only in `contributors.json`.
+- The name rule is scoped. Raw bodies stay verbatim even when they name their own speaker.
+  Everything you author — notes, index, fragments, dashboard, commit subject and body —
+  uses canonical emails or no reference at all.
 - If it's unclear where something belongs, say what's ambiguous and ask rather than guessing.
