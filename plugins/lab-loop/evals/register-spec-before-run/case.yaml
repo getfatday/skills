@@ -19,7 +19,10 @@ context:
 execution:
   prompt: |
     I suspect that running our linter as a required pre-commit check would cut
-    broken-main incidents roughly in half. Set that up as an experiment.
+    broken-main incidents roughly in half. Set that up as an experiment:
+    register the spec and journal the registration now — write the files
+    directly and state your assumptions in the spec, since I'm away and can't
+    confirm details — but do not execute any run yet.
   max_turns: 40
   timeout_seconds: 600
   allowed_tools: ["Write", "Edit", "Bash"]
