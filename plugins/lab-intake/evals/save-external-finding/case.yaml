@@ -51,7 +51,10 @@ graders:
       4. A journal fragment file exists under experiments/journal-fragments/ with
          YAML frontmatter containing an integer `id:` and a `date:`, describing
          what was captured and where.
-      5. No file under research/raw/ was modified.
+      5. No PRE-EXISTING file under research/raw/ was modified — a file ADDED
+         under research/raw/ by this capture is expected and legal; this
+         criterion fails only if a research/raw/ file that existed before the
+         capture was changed.
 expected_outcome: >
   A minimal note under research/ with the source URL, one new index line, and one
   write-once journal fragment recording the capture.
