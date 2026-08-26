@@ -109,6 +109,25 @@
         "verdicts",
         "journal"
       ]
+    },
+    {
+      "name": "crux",
+      "source": "./plugins/crux",
+      "description": "Crux: durable repo memory, evidence-grade experiments, and an explicit operating model \u2014 one plugin, profile-gated. Write-once capture + journal + dashboard; the hypothesis loop with binary assertions and mechanical verdicts; the operating-model lifecycle (adopt/observe/evaluate/compile/verify/run). /crux:init scaffolds per profile; upgrading from lab-intake+lab-loop is a counted two-way door (docs/upgrading.md).",
+      "author": {
+        "name": "getfatday"
+      },
+      "category": "framework",
+      "keywords": [
+        "crux",
+        "capture",
+        "journal",
+        "hypothesis",
+        "experiment",
+        "operating-model",
+        "workflow",
+        "evidence"
+      ]
     }
   ]
 }

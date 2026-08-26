@@ -1,0 +1,21 @@
+{
+  "name": "crux",
+  "version": "0.1.0",
+  "description": "Crux: durable repo memory, evidence-grade experiments, and an explicit operating model — one plugin, profile-gated. Capture profile: write-once raw capture, distilled linked notes, an indexed wiki layer, an append-only journal of write-once fragments, and a compiled status dashboard, enforced by hooks. Experiments profile adds the hypothesis loop: spec first, one variable, fixed budgets, binary assertions, mechanical keep/discard/refine verdicts. Modeling profile adds the operating-model lifecycle: adopt (mine a repo and its recorded sessions into a SCHEMA-shaped model), observe (trace sessions against it), evaluate (audit it), compile (regenerate executable artifacts from it), verify (A/B-test interventions), and run (execute compiled flows). /crux:init scaffolds your repo per profile; capture triggers on phrases like \"note this\".",
+  "author": {
+    "name": "Ian Anderson",
+    "url": "https://github.com/getfatday"
+  },
+  "keywords": [
+    "crux",
+    "capture",
+    "journal",
+    "knowledge",
+    "hypothesis",
+    "experiment",
+    "assertions",
+    "verdict",
+    "operating-model",
+    "workflow"
+  ]
+}
