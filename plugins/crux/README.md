@@ -81,6 +81,11 @@ config files and CLAUDE.md rules blocks in place.
 | `scripts/em-slice-lint.py` | Mechanical conformance lint over the board serialization (rules EM-L1..EM-L10) |
 | `scripts/lexicon-lint.py` | Glossary conformance lint over model text (advisory) |
 | `scripts/currency-lint.py` | Stale-value lint: current-state claims in node bodies verified against the cited artifacts (ADVISORY, non-certifying) |
+| `scripts/doctor-classify.py` | Environment-health doctor, detection half: types the OAuth credential surface (CLEAN / FLAP-DEGRADED / HARD-EXPIRED / INDETERMINATE) from recorded probe streams or a live read-only snapshot — see `docs/doctor.md` |
+| `scripts/doctor-remediate.py` | Environment-health doctor, remediation half: the frozen four-state ladder — exactly one next step per typed state, fail-closed heal verification |
+| `scripts/review-cadence.py` | The verdict-forcing review cadence: ranked REVIEW DEBT surface + append-only verdict appender (multi-evidence) — see `docs/review-cadence.md` |
+| `scripts/waste-status.py` | Advisory flow instrument: idle-runnable, terminal-pickup, and void-meter waste metrics from committed timestamps alone (exit 0 always, never a gate) |
+| `scripts/parity-check.py` | Byte-parity checker between an installed crux copy and a published manifest or pinned reference tree (see “Install parity” below) |
 | `kernel/operating-model/SCHEMA.md` | The node grammar (+ `SCHEMA-DELTA.md`, this copy's deltas) |
 | `kernel/harness/` | The frozen extraction protocol, grading rubric, and trace-citation validator |
 | `grammar/` | The Event Modeling layer: metamodel, slice-board layout + lint rules, schema-to-EM mapping |
@@ -135,6 +140,18 @@ read it. All paths are repo-relative.
 | `model_dir` | `operating-model` |
 | `context` | the repository directory name (slugified) |
 
+## Install parity
+
+Drift between an installed crux copy and its published referent is measured, never assumed.
+`scripts/parity-check.py --install <dir> (--manifest <published-manifest> | --reference <tree>)`
+prints one finding per diverged/missing/extra file with its shipped file class and exits
+nonzero; silent exit 0 is parity. Repair direction matters: a drifted INSTALL is restored
+from the published referent; when the SOURCE moved ahead, the repair is a new versioned
+publish — never an in-place overwrite of a published version. The checker is the counted
+instrument of the parity law (hypothesis H-181 in the source lab, kept 2026-08-26: a clean
+install grades zero findings, every seeded divergence is detected with path and class, and
+the sync procedure restores byte parity without touching counted history).
+
 ## Journal convention
 
 One write-once fragment file per entry — `<journal_dir>/<id>-<slug>.md` with frontmatter
@@ -176,6 +193,14 @@ One suite per skill under `evals/<skill>/<case>/case.yaml`; see `evals/README.md
 
 ## Changelog
 
+- 0.2.0 — environment health and review flow: the doctor pair
+  (`scripts/doctor-classify.py` + `scripts/doctor-remediate.py`, counted H-182/H-183 in the
+  source lab — see `docs/doctor.md`), the verdict-forcing review cadence
+  (`scripts/review-cadence.py`, counted H-188 — see `docs/review-cadence.md`), the install
+  parity checker (`scripts/parity-check.py`, counted H-181), and the advisory waste/flow
+  instrument (`scripts/waste-status.py`, uncounted-but-measured; proving specs H-192..H-196
+  registered in the source lab). All counted scripts ship byte-preserving from their counted
+  fixture copies; only provenance framing and consumer-repo path resolution differ.
 - 0.1.0 — first consolidated release: the capture and experiment-loop capabilities of the
   retired predecessor plugins (capture 0.1.4, experiment loop 0.1.0) fold into one
   profile-gated install, joined by the operating-model lifecycle (adopt / observe / evaluate / compile /

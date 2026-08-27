@@ -59,6 +59,12 @@ Run `/crux:init --profile experiments` once per repository to scaffold everythin
 - One variable changes; everything else matches the baseline.
 - Save run artifacts (transcripts, outputs, measurements) to `experiments/runs/<id>/run-<k>/`;
   pinned inputs both arms share live in `experiments/runs/<id>/fixture/`.
+- If a headless child dies at startup with `Not logged in · Please run /login` (error at zero
+  cost), don't reflexively re-login — that is the credential-flap signature. Classify the
+  surface first (`python3 "${CLAUDE_PLUGIN_ROOT}/scripts/doctor-classify.py" --live`), then
+  take exactly the step the ladder emits for the typed state
+  (`python3 "${CLAUDE_PLUGIN_ROOT}/scripts/doctor-remediate.py" step --state <STATE>`) — see
+  the plugin's `docs/doctor.md`.
 
 ## 3. Evaluate and decide mechanically
 

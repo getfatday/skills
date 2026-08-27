@@ -113,7 +113,7 @@
     {
       "name": "crux",
       "source": "./plugins/crux",
-      "description": "Crux: durable repo memory, evidence-grade experiments, and an explicit operating model \u2014 one plugin, profile-gated. Write-once capture + journal + dashboard; the hypothesis loop with binary assertions and mechanical verdicts; the operating-model lifecycle (adopt/observe/evaluate/compile/verify/run). /crux:init scaffolds per profile; upgrading from lab-intake+lab-loop is a counted two-way door (docs/upgrading.md).",
+      "description": "Crux: durable repo memory, evidence-grade experiments, and an explicit operating model \u2014 one plugin, profile-gated. Write-once capture + journal + dashboard; the hypothesis loop with binary assertions and mechanical verdicts; the operating-model lifecycle (adopt/observe/evaluate/compile/verify/run). /crux:init scaffolds per profile; upgrading from lab-intake+lab-loop is a counted two-way door (docs/upgrading.md). 0.2.0 adds the environment-health doctor (typed credential-flap classification with a frozen remediation ladder) plus the verdict-forcing review cadence over open ledger rows.",
       "author": {
         "name": "getfatday"
       },

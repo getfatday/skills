@@ -29,7 +29,10 @@ from the model.
    `python3 <name>.runner.py` from the repository root. Deterministic (tier-D) steps run as
    subprocesses at zero model cost; judgment steps spawn budgeted child sessions. In a
    session with the Workflow tool, the workflow target is the richer, resumable lane —
-   invoke it with the flow's declared args.
+   invoke it with the flow's declared args. If a spawned child dies at startup with a
+   not-logged-in error at zero cost, classify the credential surface before re-logging —
+   the plugin's environment-health doctor types the state and names the one next step
+   (`docs/doctor.md`).
 3. **Grade mechanically**: the runner writes its results next to the compiled triple; every
    GWT case gets pass/fail from its assertion manifest — never from impressions of the
    transcript. Report per-case results and the run's verdict line verbatim.

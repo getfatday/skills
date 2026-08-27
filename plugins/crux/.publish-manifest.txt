@@ -1,2 +1,2 @@
-crux 0.1.0 published 2026-08-26 from cause-n-effect staging commit 5f3ada78
-aggregate sha256: fd9bb60eff18dabd09a1844595bec0502064d81ff1d98a32af2229fa7dc5d26a over 80 files (formula: sorted '<rel> <sha256>' lines)
+crux 0.2.0 published 2026-08-27 from cause-n-effect staging commit 5d3f6eba
+aggregate sha256: d18b336b77cc655baf0ace36ac48ab90eea5c1d430293a5a3b909149f431dbf0 over 87 files (formula: sorted '<rel> <sha256>' lines)
