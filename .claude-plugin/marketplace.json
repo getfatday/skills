@@ -113,7 +113,7 @@
     {
       "name": "crux",
       "source": "./plugins/crux",
-      "description": "Crux: durable repo memory, evidence-grade experiments, and an explicit operating model \u2014 one plugin, profile-gated. Write-once capture + journal + dashboard; the hypothesis loop with binary assertions and mechanical verdicts; the operating-model lifecycle (adopt/observe/evaluate/compile/verify/run). /crux:init scaffolds per profile; upgrading from lab-intake+lab-loop is a counted two-way door (docs/upgrading.md). 0.2.0 adds the environment-health doctor (typed credential-flap classification with a frozen remediation ladder) plus the verdict-forcing review cadence over open ledger rows.",
+      "description": "Crux: durable repo memory, evidence-grade experiments, and an explicit operating model \u2014 one plugin, profile-gated. Write-once capture + journal + dashboard; the hypothesis loop with binary assertions and mechanical verdicts; the operating-model lifecycle (adopt/observe/evaluate/compile/verify/run). /crux:init scaffolds per profile; upgrading from lab-intake+lab-loop is a counted two-way door (docs/upgrading.md). 0.2.0 adds the environment-health doctor (typed credential-flap classification with a frozen remediation ladder) plus the verdict-forcing review cadence over open ledger rows. 0.3.0 adds the audited GitHub-issues intake (CRLF-normalizing transport adapter, templated replies, allowlist-confined teardown \u2014 proven live), the directive-intake kit (declare acceptance assertions before mutating, with closure lint and On-close commitment emitter), the report-only ethics extension to preflight, the channel consent discipline and templates, and the CI scaffold reference.",
       "author": {
         "name": "getfatday"
       },

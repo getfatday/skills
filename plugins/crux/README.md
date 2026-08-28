@@ -86,6 +86,13 @@ config files and CLAUDE.md rules blocks in place.
 | `scripts/review-cadence.py` | The verdict-forcing review cadence: ranked REVIEW DEBT surface + append-only verdict appender (multi-evidence) — see `docs/review-cadence.md` |
 | `scripts/waste-status.py` | Advisory flow instrument: idle-runnable, terminal-pickup, and void-meter waste metrics from committed timestamps alone (exit 0 always, never a gate) |
 | `scripts/parity-check.py` | Byte-parity checker between an installed crux copy and a published manifest or pinned reference tree (see “Install parity” below) |
+| `scripts/issueops-fetch.py`, `scripts/issueops-reply.py`, `scripts/issueops-teardown.py`, `scripts/issueops_gh.py` | The audited GitHub-issues intake: CRLF-normalizing transport adapter, deterministic reply templater, manifest-scoped teardown, and the account-pinned audited gh helper they share — outward writes confined to a frozen allowlist (see `docs/issueops.md`) |
+| `scripts/preflight-rigor.py` | The ethics extension to preflight, REPORT-ONLY: six calibrated rows over each spec's `## Ethical assumptions` section; the enforcement flip is maintainer-gated (see `docs/preflight-rigor.md`) |
+| `scripts/directive-lint.py` + `scripts/directive_emitter.py` | The directive-intake closure join: level-triggered lint over `directives/D-*.md` (five finding classes) + the On-close commitment emitter into the work ledger (see `docs/directive-intake.md`) |
+| `templates/DIRECTIVE-TEMPLATE.md` | The D-doc shape: acceptance assertions declared before any mutation, verification record, machine-readable On-close block |
+| `templates/channel/` | The consent-screen and templated-reply files of the channel consent discipline — inert until the channel-deploy ruling (see `docs/channel-consent.md`) |
+| `docs/ci-scaffold.md` | The CI scaffold story: three-artifact keep-regression net, self-test == CI, least-privilege `permissions: contents: read` on every emitted workflow (normative reference; the scaffold script ships when promoted) |
+| `docs/ask-triage.md` | The ask-triage finding: safety-critical hook discipline ships as reference implementations, not arm-built artifacts — no gate ships pending the maintainer ruling |
 | `kernel/operating-model/SCHEMA.md` | The node grammar (+ `SCHEMA-DELTA.md`, this copy's deltas) |
 | `kernel/harness/` | The frozen extraction protocol, grading rubric, and trace-citation validator |
 | `grammar/` | The Event Modeling layer: metamodel, slice-board layout + lint rules, schema-to-EM mapping |
@@ -193,6 +200,24 @@ One suite per skill under `evals/<skill>/<case>/case.yaml`; see `evals/README.md
 
 ## Changelog
 
+- 0.3.0 — external input, safely: the audited GitHub-issues intake
+  (`scripts/issueops-fetch.py` / `issueops-reply.py` / `issueops-teardown.py` /
+  `issueops_gh.py`, counted H-136 in the source lab on LIVE GitHub — 2x5/5 with outward
+  writes confined to the frozen allowlist; the reply templater counted twice, H-106 +
+  H-136 — see `docs/issueops.md`); the directive-intake kit
+  (`templates/DIRECTIVE-TEMPLATE.md` + `scripts/directive-lint.py` +
+  `scripts/directive_emitter.py`, counted H-199 — declared-before git-order,
+  named-divergence verification — see `docs/directive-intake.md`); the report-only ethics
+  extension to preflight (`scripts/preflight-rigor.py`, counted H-132; the enforcement
+  flip stays maintainer-gated — see `docs/preflight-rigor.md`); the channel consent
+  discipline (`templates/channel/` + `docs/channel-consent.md`, counted H-125 sandboxed;
+  live wiring stays gated on the maintainer channel-deploy ruling); the CI scaffold
+  normative reference (`docs/ci-scaffold.md`, counted H-198 — the excerpt-complete
+  refine-to-keep); and the ask-triage finding (`docs/ask-triage.md`, H-200 discarded —
+  the reference gates ship only on a maintainer ruling, deliberately NOT ported). All
+  counted scripts ship as counted from their fixture copies; only provenance framing,
+  script names, and consumer-repo path/account resolution differ (offline byte-parity
+  verified at port time).
 - 0.2.0 — environment health and review flow: the doctor pair
   (`scripts/doctor-classify.py` + `scripts/doctor-remediate.py`, counted H-182/H-183 in the
   source lab — see `docs/doctor.md`), the verdict-forcing review cadence
