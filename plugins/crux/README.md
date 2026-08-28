@@ -73,7 +73,16 @@ config files and CLAUDE.md rules blocks in place.
 | `skills/` | The nine skills above |
 | `hooks/hooks.json` + `hooks/scripts/` | Deterministic guards (see table below) |
 | `scripts/compile-journal.py` | Renders the compiled journal view from write-once fragments (copied into your repo by init) |
-| `scripts/compile-dashboard.py` | Compiles a DASHBOARD.md status projection from your repo's own ledger and journal fragments; every source is optional |
+| `scripts/compile-dashboard.py` | Compiles a DASHBOARD.md status projection from your repo's own ledger and journal fragments (every source is optional) — v3 renders DECISIONS WAITING first as AskUserQuestion-grammar cards, normalizes three ledger row shapes, and regenerates `decisions.html` from the template at every compile (see `docs/decisions.md`) |
+| `scripts/decisions.py` + `scripts/decisions-template.html` + `scripts/proactive-open.sh` | The decision kit: one ledger-backed decision store (append-only rows; status derived by join; decided-by/at/commit derive from git, never stored), the decision-surface template, and the once-per-new-id proactive opener — see `docs/decisions.md` |
+| `scripts/closes_when.py` | The shared closes-when predicate evaluator (path-exists, commit-grep, hypothesis-kept, maintainer-ruling, decision-resolved) — one evaluator for the dashboard and the session resolver, so two readers of the same ledger can never disagree |
+| `docs/communication-contract.md` + `scripts/house-vocabulary.json` + `scripts/clarity-lint.py` | The clarity canon: the decision-card/session-report anatomy with ceilings (measured in the source lab: naive-reader comprehension 78.6%→100% at −35% reader effort), the L3 gloss list, and the L1-L11 mechanical lint |
+| `scripts/stall-signals.py` | Read-side stall detector: the S1-S5 signal strip (quiet experiments, idle claims, orphaned siblings, frozen close-conditions, journal-less runs) with gate-aware exemptions and tracked-file snooze — counted H-154 (see `docs/observatory.md`) |
+| `scripts/flow-metrics.py` | Typed waste detector: machine-joinable `FLOW <CLASS> lane=...` lines over five classes (idle-runnable, stale-gate, unruled-terminal, void-cluster, WIP-breach) — counted H-192; joins `waste-status.py`, the prose report |
+| `scripts/identity-resolve.py` | Per-user attribution + the YOURS/OTHERS lens: mailmap-canonicalized registering-commit owners, agent-assist disclosure from Co-authored-by trailers, render-time acting-as, offline initials avatars — counted H-156 |
+| `scripts/derive-metrics.py` | Deterministic metric derivation into an append-only time series with `--trend` direction verdicts against each metric node's declared direction-of-good — counted H-129 |
+| `scripts/emit_workflow_fact.py` + `scripts/harvest_gwt.py` + `scripts/facts_lib.py` | The workflow-facts loop: one validated fact record per workflow close (idempotent, append-only) and the gate→GWT harvester emitting candidate `gwt-case/v1` records onto their owning slice — counted H-118 |
+| `scripts/render-case-study.py` + `scripts/fact_fidelity.py` + `scripts/content_lint.py` + `scripts/jargon.json` | The per-keep case-study renderer with its frozen fact grammar and content lint: every number extracted from artifact bytes, every quote byte-verified, fail-closed self-checks — counted H-201 |
 | `scripts/init-scaffold.py` | The deterministic profile-gated scaffold init runs |
 | `scripts/preflight.py` | The deterministic spec preflight (copied into your repo by init at the experiments profile) |
 | `scripts/compile-model-workflow.py` | The model-to-executable compiler: one flow in, a dynamic-workflow target + a portable runner + a shared GWT assertion manifest out |
@@ -120,7 +129,7 @@ every mechanism ships three ways:
 | PreToolUse (`Bash`, run-shaped) | Preflight gate (experiments profile): headless agent invocations tied to an experiment are denied when the spec is missing or fails the shipped preflight. |
 | PreToolUse (`Bash`, `git commit`) | Advisory backstop (experiments profile): a tinker-shaped commit with no hypothesis spec staged prints a one-line nudge. Never blocks. |
 | UserPromptSubmit | Capture-intent nudge on phrases like "note this" / "save that". Precision-first; silent otherwise. |
-| SessionStart | Standing rules pointer + drift check against the plugin's canonical templates; uncommitted-capture warning; stale-dashboard check and refresh. |
+| SessionStart | Standing rules pointer + drift check against the plugin's canonical templates; uncommitted-capture warning; stale-dashboard check and refresh; ledger resolver (`hooks/scripts/session_resolver.py`): open decisions surface first (`DECISION-LEDGER` lines + summary), then unresolved intent/amendment/commitment/directive rows, capped at 20 lines. |
 | Stop | Unjournaled-work backstop (blocks once with instructions when new knowledge files have no journal fragment); dashboard refresh. |
 
 All hook scripts are stdlib-only Python, fail open on any error, and use consumer-generic
@@ -142,6 +151,7 @@ read it. All paths are repo-relative.
 | `compiled_file` | `experiments/journal-compiled.md` |
 | `hypotheses_dir` | `hypotheses` |
 | `runs_dir` | `experiments/runs` |
+| `ledger_file` | `ledger/ledger.jsonl` (the work ledger the dashboard, decision kit, and session resolver share; the optional `DECIDERS` routing file lives beside it) |
 | `template_file` | `hypotheses/TEMPLATE.md` |
 | `preflight_file` | `experiments/preflight.py` |
 | `model_dir` | `operating-model` |
@@ -200,6 +210,35 @@ One suite per skill under `evals/<skill>/<case>/case.yaml`; see `evals/README.md
 
 ## Changelog
 
+- 0.4.0 — decide less, see more: the decision kit and the observatory. The decision kit
+  (`scripts/decisions.py` + `scripts/decisions-template.html` +
+  `scripts/proactive-open.sh` + `scripts/closes_when.py` + the compile-dashboard v3
+  merge + the SessionStart resolver v5 — see `docs/decisions.md`): one append-only
+  decision store in your work ledger, AskUserQuestion-grammar cards rendered FIRST on
+  the dashboard and regenerated whole into `decisions.html`, resolution by one CLI line
+  that commits just the resolution row, and decided-by/at/commit derived from git —
+  never stored (the source lab's H-084 keep + name-neutrality law; the CLI's
+  `--selftest` proves the whole loop in a throwaway repo). The clarity canon
+  (`docs/communication-contract.md` + `scripts/house-vocabulary.json` +
+  `scripts/clarity-lint.py`, measured in the source lab: naive-reader comprehension
+  78.6%→100% at −35% reader effort; counted hardening specs H-207..H-211 registered
+  there). The observatory (six counted instruments, each 2x consecutive full-pass
+  counted runs in the source lab, keep dates 2026-08-28 — see `docs/observatory.md`):
+  stall signals (`scripts/stall-signals.py`, H-154), typed flow waste
+  (`scripts/flow-metrics.py`, H-192 — joins 0.2.0's `waste-status.py` as the counted
+  typed alarm surface), identity attribution + the YOURS/OTHERS lens
+  (`scripts/identity-resolve.py`, H-156), metric trend derivation
+  (`scripts/derive-metrics.py`, H-129), the workflow-facts loop
+  (`scripts/emit_workflow_fact.py` + `scripts/harvest_gwt.py` + `scripts/facts_lib.py`,
+  H-118), and the per-keep case-study renderer (`scripts/render-case-study.py` +
+  `scripts/fact_fidelity.py` + `scripts/content_lint.py` + `scripts/jargon.json`,
+  H-201). All counted scripts ship byte-preserving from their counted artifacts; only
+  provenance framing, script names, and consumer-repo path resolution (`.claude/crux.json`
+  `ledger_file`, plugin-home fallbacks) differ, and each file's header names its exact
+  divergences. Deliberately NOT shipped: the source lab's board renderer (H-036
+  discarded on three counted content-quality failures; successor H-212 registered and
+  pending) and the H-200 ask-triage reference gates (the ship ask was converted to
+  experiment H-206, registered; they ship on its keep — `docs/ask-triage.md`).
 - 0.3.0 — external input, safely: the audited GitHub-issues intake
   (`scripts/issueops-fetch.py` / `issueops-reply.py` / `issueops-teardown.py` /
   `issueops_gh.py`, counted H-136 in the source lab on LIVE GitHub — 2x5/5 with outward

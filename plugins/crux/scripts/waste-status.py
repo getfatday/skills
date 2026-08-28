@@ -5,9 +5,12 @@
 # subprocesses and file reads only). The registered proving specs are
 # H-192-flow-instrument-seeded-detection through H-196 (H-192 seeded-detection,
 # H-193 frontier-dispatch-throughput, H-194 rearm-idle-ceiling,
-# H-195 conwip-cap-contention-voids, H-196 audit-tick-unprompted-reflection) —
-# registered active in the source lab; this instrument ships on the advisory
-# pattern (never a gate) pending their verdicts. Only this provenance header
+# H-195 conwip-cap-contention-voids, H-196 audit-tick-unprompted-reflection).
+# H-192 KEPT 2026-08-28 (two consecutive counted 5/5): its counted instrument
+# ships beside this one as scripts/flow-metrics.py — the typed, machine-joinable
+# detection surface (FLOW <CLASS> lane=... lines, five classes). This report
+# stays the human-readable prose form over the same committed timestamps; both
+# ship on the advisory pattern (never a gate). Only this provenance header
 # and the consumer-repo-root default differ from the measured lab copy.
 """waste-status.py — the census's top-3 waste metrics from committed timestamps alone.
 

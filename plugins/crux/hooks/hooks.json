@@ -1,5 +1,5 @@
 {
-  "description": "crux guards: write-once raw + journal fragments incl. a Bash mistake-net branch (PreToolUse), generic policy interpreter over operating-model policy nodes (PreToolUse), capture-intent context (UserPromptSubmit), standing rules + drift check + uncommitted-capture warning + stale-dashboard check (SessionStart), unjournaled-work backstop (Stop), dashboard refresh (SessionStart + Stop), preflight gate on run-shaped commands + advisory commit backstop (PreToolUse, experiments profile).",
+  "description": "crux guards: write-once raw + journal fragments incl. a Bash mistake-net branch (PreToolUse), generic policy interpreter over operating-model policy nodes (PreToolUse), capture-intent context (UserPromptSubmit), standing rules + drift check + uncommitted-capture warning + stale-dashboard check + ledger resolver with open-decision surfacing (SessionStart), unjournaled-work backstop (Stop), dashboard refresh (SessionStart + Stop), preflight gate on run-shaped commands + advisory commit backstop (PreToolUse, experiments profile).",
   "hooks": {
     "PreToolUse": [
       {
@@ -74,6 +74,11 @@
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/compile-dashboard.py\" --check || echo \"crux: DASHBOARD.md was stale at session start (the next hook refreshes it) — review and commit the refreshed copy.\"",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session_resolver.py\" \"${CLAUDE_PROJECT_DIR:-.}\" 2>/dev/null | head -20 || true",
+            "timeout": 15
           },
           {
             "type": "command",

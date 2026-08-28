@@ -4,8 +4,12 @@
 > reference implementations in the source lab
 > (`experiments/runs/H-200/fixture/reference/` — LEG A `ask_gate_ref.py`, LEG B
 > `ask_stop_gate_ref.py`, calibrated 7/7 with every seeded defect firing exactly on
-> target), and ships **only on a maintainer ruling** (a needs-maintainer item in the source
-> lab). This document records the measured finding so the decision is made on evidence.
+> target). Status as of 0.4.0: the ship question was itself a two-way door, so the source
+> lab converted the pending maintainer ask (its DEC-005) into an experiment — **H-206**,
+> registered there, hardens the reference implementations into a mechanical A/B/C
+> ask-triage classifier proven in a scaffolded scratch consumer repo. The gates ship on
+> H-206's keep, not on a ruling. This document records the measured finding behind that
+> route.
 
 ## What was tested
 
@@ -42,17 +46,20 @@ excerpt gap, and repairing it produced one perfect run — but not two).
 arm-built artifacts.** When the artifact's value is that it fails safe every time, a
 per-arm coin flip on fail-open is disqualifying no matter how buildable the happy path is.
 The calibrated reference gates — written harness-side, proven 7/7 against the defect
-matrix, doors green — are the deliverable that already exists; whether they ship, and with
-what maintainer-ratified exemption list and deny wording, is the pending ruling.
-Arm-buildability of safety-critical hook discipline returns to the design lane as its own
-question.
+matrix, doors green — are the deliverable that already exists; whether they ship is now
+H-206's question (the counted consumer-repo proof the converted ask requires: the gate
+file set pinned by checksum from H-200's reference state, the classification rule text
+frozen at registration). Arm-buildability of safety-critical hook discipline returns to
+the design lane as its own question.
 
 ## Evidence
 
 **H-200-ask-triage-v2** (source lab, discarded 2026-08-28 on the carried arm-side tally;
 runs and the aggregate finding recorded in the source lab's journal). The discard is the
 finding: it rules out the ship-as-contract-and-let-arms-build-it path for this class, and
-routes the reference implementations to the maintainer ruling above. Related keeps this
-release DID ship: the directive-intake kit (docs/directive-intake.md) and the preflight
-rigor extension (docs/preflight-rigor.md), both of which are deterministic scripts promoted
-from counted fixture copies — exactly the shape this finding prescribes.
+routes the reference implementations through H-206 (the counted consumer-repo proof the
+converted ask requires — the lab's DEC-005, retriaged as a two-way door). Related keeps
+that DID ship as this finding prescribes — deterministic scripts promoted from counted
+fixture copies: the directive-intake kit (docs/directive-intake.md), the preflight rigor
+extension (docs/preflight-rigor.md), and, in 0.4.0, the six observatory instruments
+(docs/observatory.md).
