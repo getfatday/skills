@@ -128,6 +128,25 @@
         "workflow",
         "evidence"
       ]
+    },
+    {
+      "name": "disk-reclaim",
+      "source": "./plugins/disk-reclaim",
+      "description": "Recover disk space on a macOS developer laptop without losing anyone's work: read the APFS container, census every waste class read-only, ask the other live Claude sessions what is safe (KEEP/SAFE/UNKNOWN), let the human decide the rest, reclaim, record. SessionStart low-disk nudge + detached SessionEnd census.",
+      "author": {
+        "name": "getfatday"
+      },
+      "category": "developer-tools",
+      "keywords": [
+        "disk",
+        "cleanup",
+        "reclaim",
+        "simulator",
+        "worktree",
+        "node_modules",
+        "cache",
+        "hooks"
+      ]
     }
   ]
 }
