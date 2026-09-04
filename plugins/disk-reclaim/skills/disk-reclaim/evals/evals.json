@@ -1,0 +1,42 @@
+{
+  "skill_name": "disk-reclaim",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "ugh my mac just popped 'your disk is almost full' in the middle of a build. can you free up space fast? i've got like 6 claude sessions going on other stuff so don't nuke anything they're using",
+      "expected_output": "Reports container free space from diskutil (not df used), reuses or starts the census in the background, reclaims only regenerable rows immediately with sizes and re-download cost, asks idle owning sessions about evidence/unknown rows with the KEEP/SAFE/UNKNOWN format, puts the remainder to the user grouped by owner, and ends with a before/after table.",
+      "files": [],
+      "assertions": [
+        "Reads diskutil apfs list and reports container in-use and free before acting",
+        "Does not run the census inline as a blocking foreground command",
+        "Deletes only rows classified regenerable without asking; every deletion names its size and re-download cost",
+        "Does not delete any worktree with dirty files, unpushed commits, or no upstream",
+        "Any message to another session uses the KEEP/SAFE/UNKNOWN format and targets only idle or waiting sessions",
+        "Final report includes a before/after free-space table and a list of queued decisions"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "before I delete stuff: are the iOS simulator runtimes and the ~/Library/Developer/CoreSimulator devices safe to remove? some of them have names like EXP-150-run-2. also there's a 6GB pnpm store thing",
+      "expected_output": "Explains runtimes vs devices (delete unavailable never removes runtimes; zero-device runtimes are regenerable), flags tagged device names as possible experiment evidence and asks the owning session rather than guessing, identifies the pnpm store/v3 as an orphan when the current store is v10, and does not delete anything without the user's decision on the evidence rows.",
+      "files": [],
+      "assertions": [
+        "States that simctl delete unavailable does not remove runtimes",
+        "Classifies experiment-tagged devices as evidence and proposes asking the owning session, not deleting",
+        "Checks pnpm store path and identifies a non-current store/vN as orphaned before calling it safe",
+        "Does not delete any device or runtime without an explicit user decision"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "the disk warning keeps showing up at the start of every session, that's too much. i still want it but like once a day, and give me more room before it starts nagging",
+      "expected_output": "Sets cooldown-hours to 24 and raises threshold-gb in ~/.claude/disk-reclaim/, explains the snooze file, and confirms nothing was added to Stop or to any shared settings.json.",
+      "files": [],
+      "assertions": [
+        "Writes cooldown-hours and threshold-gb under ~/.claude/disk-reclaim/ and nowhere else",
+        "Explains the 24-hour snooze file",
+        "Does not edit any settings.json or register a Stop hook"
+      ]
+    }
+  ]
+}

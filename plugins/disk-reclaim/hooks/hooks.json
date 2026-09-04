@@ -1,0 +1,28 @@
+{
+  "description": "disk-reclaim: one-line low-disk nudge at SessionStart (sub-second, global cooldown, snoozable); detached read-only census at SessionEnd that refreshes ~/.claude/disk-reclaim/last-census.json when the ledger is stale. Nothing on Stop. Both scripts exit 0 on every path.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/disk_nudge.py\" 2>/dev/null || true",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "nohup python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/disk_census.py\" --ledger --if-stale 21600 >/dev/null 2>&1 & exit 0",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
