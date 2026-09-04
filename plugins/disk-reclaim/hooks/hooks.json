@@ -1,5 +1,5 @@
 {
-  "description": "disk-reclaim: one-line low-disk nudge at SessionStart (sub-second, global cooldown, snoozable); detached read-only census at SessionEnd that refreshes ~/.claude/disk-reclaim/last-census.json when the ledger is stale. Nothing on Stop. Both scripts exit 0 on every path.",
+  "description": "disk-reclaim: at SessionStart, a one-line low-disk nudge (sub-second, global cooldown, snoozable) and a self-detaching (setsid), niced, read-only census that refreshes ~/.claude/disk-reclaim/last-census.json only when the ledger is over six hours old; the same census is registered at SessionEnd (which in headless sessions fires one to three minutes after the CLI returns) and the lock makes whichever runs second a no-op. Nothing on Stop. Every command exits 0 on every path.",
   "hooks": {
     "SessionStart": [
       {
@@ -8,6 +8,11 @@
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/disk_nudge.py\" 2>/dev/null || true",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "nice -n 19 python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/disk_census.py\" --ledger --if-stale 21600 --detach 2>/dev/null || true",
             "timeout": 10
           }
         ]
@@ -18,7 +23,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "nohup python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/disk_census.py\" --ledger --if-stale 21600 >/dev/null 2>&1 & exit 0",
+            "command": "nice -n 19 python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/disk_census.py\" --ledger --if-stale 21600 --detach 2>/dev/null || true",
             "timeout": 10
           }
         ]
