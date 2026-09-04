@@ -1,7 +1,7 @@
 # Disk hooks: what runs, where state lives, how to tune
 
-The plugin's `hooks/hooks.json` registers two hooks on two different events. The census is heavy
-(2 to 5 minutes, I/O bound) and runs at SessionEnd, detached, where nobody is waiting. The nudge is
+The plugin's `hooks/hooks.json` registers the nudge and the census at SessionStart, and the census again at SessionEnd. The census is heavy
+(2 to 5 minutes, I/O bound), so it always runs detached and niced, and only when the ledger is over six hours old; SessionStart fires immediately at session start; SessionEnd fires too, but in headless sessions it runs one to three minutes after the CLI has returned, at final process teardown. Registering both means the ledger refreshes at whichever comes first, and the lock makes the second a no-op. The nudge is
 light (about 0.2 s end to end, sub-millisecond in-process) and runs at SessionStart, where one line
 of context reaches the next session. Nothing runs on Stop, which in many repos already carries
 several hooks.
@@ -9,11 +9,11 @@ several hooks.
 Both scripts follow one contract: fast, silent, every error caught, exit 0 always. A hook that can
 block a session is worse than no hook.
 
-## Why the census is detached
+## Why the census is detached and launched from SessionStart
 
 Measured with headless sessions: the CLI waits for a 20-second inline SessionEnd hook, but a
 150-second census never wrote its ledger, while a `nohup`-detached command finished after the CLI
-had exited. So the hook starts the census in the background and returns at once.
+had exited. So the hook starts the census with `--detach`, which double-forks into its own process session (`setsid`) and returns at once; plain `nohup … &` is not enough, because the CLI kills the hook's process group at teardown and a probe showed a nohup'd child dying with it. A later probe showed that plugin-declared SessionEnd hooks in headless sessions fire late, one to three minutes after the CLI returns, so a census that must be fresh for the next session cannot rely on them alone. The census is therefore also launched from SessionStart (detached, `nice -n 19`); whichever of the two starts first takes the lock and the other exits at once.
 `--if-stale 21600` makes it a no-op when the ledger is under six hours old or another census holds
 `census.lock`, so a dozen sessions ending in a day cost one census, not twelve.
 

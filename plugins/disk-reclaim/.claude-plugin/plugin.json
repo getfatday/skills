@@ -1,7 +1,7 @@
 {
   "name": "disk-reclaim",
-  "description": "Recover disk space on a macOS developer laptop without losing anyone's work: read the APFS container, run a read-only census that classifies every large path, ask the other live Claude Code sessions what is safe to delete, let the human decide the rest, reclaim, record. Ships a SessionStart low-disk nudge and a detached SessionEnd census.",
-  "version": "0.1.0",
+  "description": "Recover disk space on a macOS developer laptop without losing anyone's work: read the APFS container, run a read-only census that classifies every large path, ask the other live Claude Code sessions what is safe to delete, let the human decide the rest, reclaim, record. Ships a SessionStart low-disk nudge and a detached census that refreshes when stale.",
+  "version": "0.1.1",
   "author": { "name": "getfatday" },
   "keywords": ["disk", "cleanup", "reclaim", "simulator", "worktree", "node_modules", "cache", "hooks"]
 }

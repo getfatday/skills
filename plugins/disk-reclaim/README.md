@@ -21,8 +21,8 @@ Two hooks come with it, both exit 0 on every path:
 - **SessionStart nudge**: one `DISK_RECLAIM:` line when free space is below `threshold-gb`
   (default 30), at most once per `cooldown-hours` (default 4) across all sessions, never while
   `snooze` is fresh. About 0.2 s.
-- **SessionEnd census**: detached, refreshes `~/.claude/disk-reclaim/last-census.json` when it is
-  over six hours old. Never delays session exit.
+- **Detached census**: started detached and niced from SessionStart and again at SessionEnd (the lock makes the second a no-op), refreshes `~/.claude/disk-reclaim/last-census.json` when it is
+  over six hours old. Never delays a session; the first session after six hours pays nothing, the census runs behind it.
 
 Nothing runs on Stop.
 

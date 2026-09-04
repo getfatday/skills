@@ -36,8 +36,8 @@ is shared.
 The census is read-only and classifies every row. It is I/O bound and takes 2 to 5 minutes on a
 machine with 150 worktrees, so never run it inline in a turn the user is waiting on.
 
-- If `~/.claude/disk-reclaim/last-census.json` is under 24 hours old, use it. The SessionEnd hook
-  refreshes it.
+- If `~/.claude/disk-reclaim/last-census.json` is under 24 hours old, use it. The SessionStart hook
+  refreshes it in the background whenever it is over six hours old.
 - Otherwise run `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/disk_census.py --json --ledger` as a
   background Bash command and continue with step 3 on whatever the user already knows while it
   runs. Print the human table (no flags) once it finishes.
@@ -122,8 +122,8 @@ get each removed item back. Numbers in a table, not prose.
 
 ## Hooks and background operation
 
-The plugin installs two hooks (details in `references/hooks.md`): a SessionEnd census, detached so
-it never delays session exit, that refreshes the ledger when it is over six hours old; and a
+The plugin installs two hooks (details in `references/hooks.md`): a census launched detached and niced from SessionStart and again at SessionEnd (the lock makes the second a no-op), so
+it never delays a session and refreshes the ledger only when it is over six hours old; and a
 SessionStart nudge that prints one `DISK_RECLAIM:` line only when free space is below
 `threshold-gb` (default 30), at most once per `cooldown-hours` (default 4) across all sessions, and
 never while `snooze` is under 24 hours old. Nothing runs on Stop. When a session sees the nudge,
