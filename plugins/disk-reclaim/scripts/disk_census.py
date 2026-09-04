@@ -8,7 +8,9 @@ Every row carries: class, path, bytes, safety (regenerable | evidence | unknown)
 reclaim_cmd (or "none"), reclaim_cost, owner_session where known.
 
 --ledger writes <state>/last-census.json and appends one summary line to <state>/census-log.jsonl,
-where <state> is ~/.claude/disk-reclaim (or $DISK_RECLAIM_DIR). --if-stale N makes the run a no-op
+where <state> is ~/.claude/disk-reclaim (or $DISK_RECLAIM_DIR). --detach forks the census into its own
+process session and returns immediately, so a hook can start it and exit; nohup alone is not enough
+because the CLI kills the hook's process group at teardown. --if-stale N makes the run a no-op
 when the ledger is younger than N seconds or another census holds <state>/census.lock, which is
 what lets a SessionEnd hook call it from every session without running it from every session.
 
@@ -351,8 +353,22 @@ def main():
     ap.add_argument("--ledger", action="store_true", help="write last-census.json and append census-log.jsonl in the state dir")
     ap.add_argument("--if-stale", type=int, default=0, metavar="SECONDS",
                     help="skip when last-census.json is younger than this, or another census holds the lock")
+    ap.add_argument("--detach", action="store_true",
+                    help="fork into a new process session and return at once; the census survives the caller's exit")
     a = ap.parse_args()
     d = state_dir()
+    if a.detach:
+        # Hooks run in the CLI's process group, which is killed at teardown; nohup does not help.
+        # Double-fork with setsid puts the census in its own session so it outlives the hook.
+        if os.fork() != 0:
+            return 0
+        os.setsid()
+        if os.fork() != 0:
+            os._exit(0)
+        devnull = os.open(os.devnull, os.O_RDWR)
+        for fd in (0, 1, 2):
+            os.dup2(devnull, fd)
+        a.ledger = True
     if a.if_stale:
         last = os.path.join(d, "last-census.json")
         if os.path.exists(last) and time.time() - os.stat(last).st_mtime < a.if_stale:
