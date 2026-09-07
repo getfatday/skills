@@ -2,6 +2,11 @@
 
 Recover disk space on a macOS developer laptop without losing anyone's work.
 
+Nothing is deleted on a label. Every removal goes through `scripts/disk_reclaim.py`, which refuses any
+path that has no recorded decision in `~/.claude/disk-reclaim/ledger.jsonl`: an owner session's SAFE, a
+human's choice, or `auto:cache` for ownerless caches only. `node_modules`, worktrees, job dirs, and
+simulators always need an owner or a human, however regenerable they look.
+
 The disk on a machine that runs Xcode simulators, node and pnpm, Docker, many git worktrees, and
 several Claude Code sessions at once fills up in ways `du ~` does not show. This plugin gives Claude
 a fixed sequence: **measure** (read the APFS container, not `df`; census every known waste class,
@@ -40,7 +45,7 @@ State and tuning files live in `~/.claude/disk-reclaim/`; see
 
 ## What it will not do
 
-Delete anything classified as evidence or unknown on its own. Offer your Downloads, Documents,
+Delete anything without a ledger decision for that exact path. Delete anything classified as evidence or unknown on its own. Offer your Downloads, Documents,
 app data, applications, or any worktree with unpushed work. Run the census inline in a turn you
 are waiting on. Message a busy session, or message any session twice.
 

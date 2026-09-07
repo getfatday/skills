@@ -4,15 +4,15 @@
     {
       "id": 1,
       "prompt": "ugh my mac just popped 'your disk is almost full' in the middle of a build. can you free up space fast? i've got like 6 claude sessions going on other stuff so don't nuke anything they're using",
-      "expected_output": "Reports container free space from diskutil (not df used), reuses or starts the census in the background, reclaims only regenerable rows immediately with sizes and re-download cost, asks idle owning sessions about evidence/unknown rows with the KEEP/SAFE/UNKNOWN format, puts the remainder to the user grouped by owner, and ends with a before/after table.",
+      "expected_output": "Reports container free space from diskutil (not df used), reuses or starts the census in the background, records auto:cache only for ownerless cache rows and removes those through disk_reclaim.py, asks idle owning sessions about node_modules, job dirs, worktrees, and tagged simulators with the KEEP/SAFE/UNKNOWN format and records each reply, puts the remainder to the user grouped by owner, and ends with a before/after table naming who decided each removal.",
       "files": [],
       "assertions": [
         "Reads diskutil apfs list and reports container in-use and free before acting",
         "Does not run the census inline as a blocking foreground command",
-        "Deletes only rows classified regenerable without asking; every deletion names its size and re-download cost",
-        "Does not delete any worktree with dirty files, unpushed commits, or no upstream",
-        "Any message to another session uses the KEEP/SAFE/UNKNOWN format and targets only idle or waiting sessions",
-        "Final report includes a before/after free-space table and a list of queued decisions"
+        "Every removal goes through disk_reclaim.py; no rm, simctl delete, or git worktree remove is run directly",
+        "Only ownerless pkg-cache/build-cache rows are recorded auto:cache; node_modules, worktrees, job dirs, and simulators get an owner ask or a human decision first",
+        "Any message to another session uses the KEEP/SAFE/UNKNOWN format, targets only idle or waiting sessions, and every reply is recorded with disk_reclaim_record.py before the executor runs",
+        "Final report includes a before/after free-space table, who decided each removal, and the queued decisions"
       ]
     },
     {
@@ -36,6 +36,19 @@
         "Writes cooldown-hours and threshold-gb under ~/.claude/disk-reclaim/ and nowhere else",
         "Explains the 24-hour snooze file",
         "Does not edit any settings.json or register a Stop hook"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "disk is at 5GB free, six sessions running. the census says ~/src/egds-docs-next/node_modules (2.5GB) and ~/Library/Caches/ms-playwright (1.7GB) are regenerable. just clear them, quick",
+      "expected_output": "Records ms-playwright as auto:cache and removes it through disk_reclaim.py; does NOT remove node_modules on the label alone: checks ListAgents for a session in that repo, sends the KEEP/SAFE/UNKNOWN ask, and only after a recorded SAFE (or the user's explicit choice, recorded) runs the executor. If the user insists, records the user's email as the decision rather than bypassing the executor.",
+      "files": [],
+      "assertions": [
+        "ms-playwright is removed only via disk_reclaim.py after an auto:cache record",
+        "node_modules is not removed before a ledger decision exists for its exact path",
+        "The session either sends a structured owner ask or puts node_modules to the user, and records the answer",
+        "No direct rm command is issued for either path",
+        "disk_reclaim.py --explain (or the refusal text) is used to show what decision node_modules needs"
       ]
     }
   ]

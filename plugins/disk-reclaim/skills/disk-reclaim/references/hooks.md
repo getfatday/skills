@@ -29,7 +29,7 @@ had exited. So the hook starts the census with `--detach`, which double-forks in
 | `census-log.jsonl` | census `--ledger` | one summary line per run: elapsed, container figures, measured and regenerable bytes |
 | `census.lock` | census | pid of a running census; removed on completion |
 | `hook-log.jsonl` | nudge | one line per firing: free_gb, threshold, snoozed, cooling, fired, ms_in_process |
-| `ledger.jsonl` | `disk_reclaim_record.py` | one line per reclaim decision: path, bytes, command, who decided, when |
+| `ledger.jsonl` | `disk_reclaim_record.py`, `disk_reclaim.py` | append-only decisions and removals: path, bytes, command, decided_by (human email, `owner:<session>` with verdict, or `auto:cache`), keep_until, and for removals reclaimed_bytes. `disk_reclaim.py` reads this and refuses any path without an allowing decision |
 
 One directory per user, not per repo. The disk is machine-wide; a per-project ledger would fork
 the threshold, snooze, and staleness clocks across every repo you work in and miss most session

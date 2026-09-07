@@ -27,7 +27,16 @@ The last paragraph says what to do rather than forbidding cleanup, because in me
 owners cleaned up their own scratch anyway when the message said "do not delete anything
 yourself". Asking them to report what they removed keeps the census numbers honest.
 
-## Reading a reply
+## Reading a reply, then recording it
+
+A reply that is not recorded does not exist to the executor. For each verdict line:
+
+```
+disk_reclaim_record.py --path <exact path> --bytes <census bytes> --cmd "<census reclaim_cmd>" \
+  --decided-by "owner:<session name>" --verdict SAFE|KEEP|UNKNOWN [--until "<condition>"] [--note "<what they removed>"]
+```
+
+`disk_reclaim.py` allows a path only on an owner SAFE, a human email, or (for ownerless caches only) `auto:cache`. A KEEP blocks it; an UNKNOWN or no reply leaves it for the human.
 
 - Take each verdict line's token: KEEP, SAFE, or UNKNOWN. Ignore any preamble ("Per-path
   verdicts:", "Inventory:"); grade lines, not the first word of the message.
