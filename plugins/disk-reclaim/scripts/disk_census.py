@@ -214,7 +214,7 @@ def class_repos(rows):
         rows.extend(r for r in ex.map(_repo_row, repos) if r["measured_bytes"] > 200 * 1024 * 1024)
 
 
-def class_node_modules(rows):
+def class_node_modules(rows, jobs):
     seen = set()
     for pat in [os.path.join(HOME, "src", "*", "node_modules"),
                 os.path.join(HOME, "src", "*", "*", "node_modules")]:
@@ -224,8 +224,14 @@ def class_node_modules(rows):
             seen.add(p)
             b = du_bytes(p, timeout=90)
             if b > 100 * 1024 * 1024:
-                rows.append(row("node-modules", p, b, "regenerable", "package install output",
-                                f"rm -rf {p}", "pnpm install ~1 min from store; npm 3-10 min"))
+                repo = p.rsplit("/node_modules", 1)[0]
+                owner = owner_for(repo, jobs)
+                # Inside a repo someone may be working in right now. Regenerable in principle, but an
+                # install in flight or a dev server holding it makes deletion a real cost to a real person.
+                # Unknown until the owner (or the human) says SAFE.
+                rows.append(row("node-modules", p, b, "unknown",
+                                ("live job cwd in this repo: " + owner) if owner else "inside a repo; owner may be mid-install; ask",
+                                f"rm -rf {p}", "pnpm install ~1 min from store; npm 3-10 min", owner))
 
 
 def class_caches(rows):
@@ -241,13 +247,17 @@ def class_caches(rows):
         ("build-cache", os.path.join(HOME, "Library/Developer/Xcode/DerivedData"), "rm -rf ~/Library/Developer/Xcode/DerivedData", "full rebuild"),
         ("vm-bundle", os.path.join(HOME, "Library/Application Support/Claude/vm_bundles"), "quit Claude desktop, then rm -rf the bundle", "re-download ~12 GB on next Cowork use"),
         ("docker-image", os.path.join(HOME, "Library/Containers/com.docker.docker/Data/vms/0/data"), "docker system prune, then Docker Desktop Clean/Purge", "images rebuild or re-pull"),
-        ("plugin-cache", os.path.join(HOME, ".claude/plugins"), "reinstall plugins", "re-download"),
+        ("plugin-cache", os.path.join(HOME, ".claude/plugins"), "none", "the installed plugins' hooks run from here; removing it breaks every live session"),
     ]
     for cls, p, cmd, cost in fixed:
         b = du_bytes(p)
         if b > 50 * 1024 * 1024:
-            safety = "regenerable" if cls in ("pkg-cache", "build-cache", "plugin-cache") else "unknown"
-            basis = "regenerated on demand" if safety == "regenerable" else "app-owned; check the app is not running"
+            if cls in ("pkg-cache", "build-cache"):
+                safety, basis = "regenerable", "ownerless cache, regenerated on demand"
+            elif cls == "plugin-cache":
+                safety, basis = "evidence", "live hooks and skills for every running session"
+            else:
+                safety, basis = "unknown", "app-owned; check the app is not running"
             rows.append(row(cls, p, b, safety, basis, cmd, cost))
     rc, out, _ = run(["pnpm", "store", "path"], timeout=15)
     current = out.strip() if rc == 0 else ""
@@ -387,7 +397,7 @@ def main():
     totals = container_totals()
     jobs = live_jobs()
     for fn in (lambda: class_simulators(rows), lambda: class_worktrees(rows, jobs),
-               lambda: class_repos(rows), lambda: class_node_modules(rows),
+               lambda: class_repos(rows), lambda: class_node_modules(rows, jobs),
                lambda: class_caches(rows), lambda: class_claude(rows, jobs),
                lambda: class_git_objects(rows), lambda: class_home(rows)):
         try:

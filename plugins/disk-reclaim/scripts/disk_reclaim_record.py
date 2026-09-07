@@ -3,6 +3,7 @@
 
 Usage:
   disk_reclaim_record.py --path P --bytes N --cmd "C" --decided-by WHO
+   WHO is a human email, 'owner:<session name>' (with --verdict), or 'auto:cache' (ownerless caches only).
                          [--class CLS] [--owner SESSION] [--verdict KEEP|SAFE|UNKNOWN]
                          [--until COND] [--note TEXT]
 
@@ -24,7 +25,8 @@ def main():
     ap.add_argument("--path", required=True)
     ap.add_argument("--bytes", type=int, required=True, help="measured bytes before the reclaim")
     ap.add_argument("--cmd", required=True)
-    ap.add_argument("--decided-by", required=True, help="email, or auto:regenerable")
+    ap.add_argument("--decided-by", required=True,
+                    help="who decided: a human email, 'owner:<session name>' for a session verdict, or 'auto:cache' for an ownerless cache row")
     ap.add_argument("--class", dest="cls", default="")
     ap.add_argument("--owner", default="")
     ap.add_argument("--verdict", default="", choices=["", "KEEP", "SAFE", "UNKNOWN"])
@@ -36,7 +38,7 @@ def main():
         "path": a.path, "class": a.cls, "measured_bytes": a.bytes,
         "reclaim_cmd": a.cmd, "decided_by": a.decided_by,
         "owner_session": a.owner, "owner_verdict": a.verdict, "keep_until": a.until,
-        "decision": "keep" if a.verdict == "KEEP" else "reclaim",
+        "decision": {"KEEP": "keep", "UNKNOWN": "asked"}.get(a.verdict, "reclaim"),
         "note": a.note,
     }
     with open(os.path.join(state_dir(), "ledger.jsonl"), "a") as f:
