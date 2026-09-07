@@ -68,26 +68,34 @@ A live process holding a directory is not proof the directory is needed, and the
 process is not proof it is safe. In one live run two zombie processes held 800 MB of scratch the
 owner called SAFE; in another, no process sat in a repo whose owner was about to reinstall.
 
-## 4. Ask the owning sessions, and wait
+## 4. Ask the owning sessions
 
-Other Claude Code sessions on this machine know what they own. Ask them before the human has to,
-and do not act on their rows until they answer or the deadline passes.
+Other Claude Code sessions on this machine know what they own. Ask them before the human has to, and
+record every step so the next session can see what was asked.
 
-1. Run `ListAgents`. Message only sessions whose row says idle or waiting. For a busy owner, call
-   `SendMessage` with `notify_when_idle: true` and no message body, then send when the idle notice
-   arrives. Never poll the list and never send a second message in the same run.
-2. Send the format in `references/ask-format.md`: named paths with sizes and state, the three-token
-   menu KEEP / SAFE / UNKNOWN, the reply address, and the mid-task escape clause.
-3. Record every reply with `disk_reclaim_record.py`: `--decided-by "owner:<session name>"
-   --verdict SAFE|KEEP|UNKNOWN`, and `--until <condition>` for a time-bounded KEEP. The executor
-   reads these records; an unrecorded reply does not count.
-4. Expect owners to clean up their own scratch when asked, and record what they removed as a note.
-   Re-measure before and after every ask round.
-5. Deadline: 10 minutes. No reply means the row stays with the human in step 5 and the ledger gets
-   `--verdict UNKNOWN --note "asked, no reply"` so the next run does not re-ask without cause.
+1. Classify liveness at send time, per owner, with `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/liveness_probe.py`
+   (classes: live-idle, live-busy, dead, unknown). A snapshot from minutes ago is not a send-time
+   listing: in measurement one owner left the roster within five minutes of the snapshot.
+2. For each `live-idle` owner: run `disk_asks.py dedup-check`; if OK, send ONE structured ask in the
+   format in `references/ask-format.md`, then `disk_asks.py sent ... --msg-id <id>` with a 600 s
+   deadline. For each `live-busy` owner: `SendMessage` with `notify_when_idle: true` and no body, and
+   send when the notice arrives. For each `dead` owner: no message; record every row
+   `ownerless-since <ts> owner-dead`. Never send a second message to anyone in the same run.
+3. When a reply arrives, record each verdict line with `disk_asks.py reply` (pass `--received-ts`
+   if you record later) and then `disk_reclaim_record.py --decided-by "owner:<name>"`. A SAFE must
+   name an on-disk artifact or pushed branch; a SAFE on a subpath leaves the row's root KEEP. A KEEP
+   may carry "until <condition>"; record it so the next run can re-ask when it is met.
+4. Silence is typed, never SAFE: `timeout` (past the deadline, from `disk_asks.py pending`),
+   `held-for-approval` (the send returned a delivery notice that the recipient's user must approve),
+   `not-asked owner-busy` (no idle notice within the window). Record each as UNKNOWN with the state in
+   the note. The executor treats all of them as not allowing.
+5. Expect owners to clean up their own scratch when asked (both measured owners did, 2.2 GB) and to
+   volunteer paths you did not name. Volunteered paths are census candidates, not decisions.
 6. This channel is for peer sessions from `ListAgents` only. Never `SendMessage` a workflow-spawned
-   subagent; that resurrects duplicates. Never ask a peer to run something your own permissions
-   blocked.
+   subagent; that resurrects duplicates. A workflow agent may draft an ask; only the parent session
+   sends it. Never ask a peer to run something your own permissions blocked.
+
+`disk_asks.py status` answers "has this thing asked anyone, and what came back" in one command.
 
 ## 5. Let the human decide the rest
 
@@ -125,6 +133,31 @@ Simulator space frees asynchronously; re-read `diskutil apfs list` after 30 seco
 One short block: container free before and after, what was removed with sizes and who decided,
 what was kept and why (owner verdict or human choice, with any until-condition), what is still
 queued for a decision, and what it would cost to get each removed item back. Numbers in a table.
+
+## When nobody is at a keyboard: the orchestrator firing
+
+The nudge only prints a line; in measurement it fired 17 times over three days and no session acted.
+`scripts/orchestrate.sh` runs one transcript-less `claude -p` firing (40 turns, $1.50) bound by
+`scripts/orchestrator-prompt.md`: take `orchestrator.lock` (heartbeat, 1800 s TTL; a second firing
+refuses), probe liveness, ask every live owner once, record every dead owner's rows ownerless, gate
+every row with the executor in dry run, write `decision-card.md`, release the lock. It never passes
+`--execute`; the card is for the human or for this skill running on recorded decisions. Measured
+with every owner dead: 7 rows recorded, 238 rows gated, nothing removed, second launch refused, 591 s.
+Schedule it the way the hyp plugin schedules its resume timer (launchd, one capped firing per tick).
+
+## Surviving compaction and session death
+
+The session running this skill is disposable. What survives is on disk: the census, `asks.jsonl`,
+`ledger.jsonl`, the decision card, and, for a multi-step effort, a work-graph the hyp plugin's
+`/hyp:durability-check` re-hydrates (measured: a transcript-less session in a clean clone recovered
+every step and edge and flagged a seeded false-done before dispatching). Two facts shape how to resume:
+
+- A Workflow run's journal replay is session-local. Resuming another session's run id runs every
+  agent live (measured: 8 live, 0 cached). So do not plan on cache across sessions; plan on the
+  graph. Open steps re-run; done steps are evidenced by their produced files, not by memory.
+- A workflow agent may not send cross-session messages. The parent session relays asks and records
+  replies between invocations, and every relay leaves a line in `asks.jsonl`, so the next session can
+  see what was asked and what came back without any transcript.
 
 ## Hooks and background operation
 
