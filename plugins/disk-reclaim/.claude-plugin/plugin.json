@@ -1,7 +1,7 @@
 {
   "name": "disk-reclaim",
-  "description": "Recover disk space on a macOS developer laptop without losing anyone's work: read the APFS container, run a read-only census that classifies every large path, ask the other live Claude Code sessions what is safe to delete, record every decision, and remove only through a ledger-gated executor that refuses undecided or owned paths. Ships a SessionStart low-disk nudge and a self-detaching census.",
-  "version": "0.2.0",
+  "description": "Recover disk space on a macOS developer laptop without losing anyone's work: read the APFS container, census read-only, ask the other live Claude Code sessions (typed silence: dead, timeout, held-for-approval), record every ask and verdict, remove only through a ledger-gated executor that stamps who acted, and run unattended as a locked orchestrator firing that writes a decision card.",
+  "version": "0.3.0",
   "author": {
     "name": "getfatday"
   },

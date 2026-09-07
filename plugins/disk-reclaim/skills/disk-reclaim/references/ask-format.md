@@ -27,13 +27,27 @@ The last paragraph says what to do rather than forbidding cleanup, because in me
 owners cleaned up their own scratch anyway when the message said "do not delete anything
 yourself". Asking them to report what they removed keeps the census numbers honest.
 
+## Silence has three names, and none of them is SAFE
+
+| State | When | Record | Card shows |
+|---|---|---|---|
+| `owner-dead` | the owner is not in the ListAgents roster at send time (liveness_probe.py class `dead`) | `disk_reclaim_record.py --decided-by auto:ownerless --verdict UNKNOWN --note "ownerless-since <ts> owner-dead"` | the human can decide; nobody else can |
+| `timeout` | asked, no reply by the deadline (`disk_asks.py pending`) | same, note `ownerless-since <ts> timeout` | re-ask allowed after 24 h |
+| `held-for-approval` | the send returned a delivery notice that the recipient's user must approve | same, note `held-for-approval since <ts>` | the one action is that user's approval |
+
+A fourth, `not-asked owner-busy`, covers owners who stayed busy for the whole window after a `notify_when_idle` subscription. All four are UNKNOWN to the executor. Measured in H-442 run 1: two owners answered in 60 and 130 s; one ask was held; one owner left the roster between snapshot and send; two stayed busy. Probe liveness per owner at send time, not from a snapshot.
+
 ## Reading a reply, then recording it
 
 A reply that is not recorded does not exist to the executor. For each verdict line:
 
 ```
+disk_asks.py reply --ask-id <id> --from "<session name>" --path <exact path> --verdict SAFE|KEEP|UNKNOWN \
+  [--until "<condition>"] [--artifact "<path or branch>"] [--self-cleaned-bytes N] [--received-ts <UTC of arrival>]
 disk_reclaim_record.py --path <exact path> --bytes <census bytes> --cmd "<census reclaim_cmd>" \
   --decided-by "owner:<session name>" --verdict SAFE|KEEP|UNKNOWN [--until "<condition>"] [--note "<what they removed>"]
+
+A SAFE scoped to a subpath does not make the row's root allowable: record the subpath SAFE and the root KEEP. The executor gates by exact path.
 ```
 
 `disk_reclaim.py` allows a path only on an owner SAFE, a human email, or (for ownerless caches only) `auto:cache`. A KEEP blocks it; an UNKNOWN or no reply leaves it for the human.

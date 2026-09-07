@@ -56,6 +56,21 @@ NEVER_CACHE_RULE = [
 FORBIDDEN_PREFIXES = ["/System", "/Applications", "/Library", "/private", "/usr", "/bin", "/sbin", "/opt", "/etc", "/var"]
 
 
+def acting_session():
+    """Who is running the executor: the job's name from ~/.claude/jobs/<id>/state.json when CLAUDE_JOB_DIR is set,
+    else the session id if the harness exports one, else the user. Recorded on every removal so the ledger can
+    answer 'which session removed this' (H-443 run 2 found four removals nobody could attribute)."""
+    jd = os.environ.get("CLAUDE_JOB_DIR", "")
+    if jd:
+        try:
+            st = json.load(open(os.path.join(jd, "state.json")))
+            return f"session:{st.get('name') or os.path.basename(jd)}"
+        except Exception:
+            return f"job:{os.path.basename(jd.rstrip('/'))}"
+    sid = os.environ.get("CLAUDE_SESSION_ID", "")
+    return f"session-id:{sid}" if sid else f"user:{os.environ.get('USER', 'unknown')}"
+
+
 def real(p):
     return os.path.realpath(os.path.expanduser(p.split(" [")[0]))
 
@@ -207,7 +222,7 @@ def main():
         if a.execute:
             rec = {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "path": row["path"].split(" [")[0],
                    "class": row.get("class", ""), "measured_bytes": before, "reclaim_cmd": row.get("reclaim_cmd", ""),
-                   "decided_by": by, "decision": "reclaimed", "reclaimed_bytes": before,
+                   "decided_by": by, "decision": "reclaimed", "reclaimed_bytes": before, "removed_by": acting_session(),
                    "reclaimed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "note": what}
             with open(os.path.join(d, "ledger.jsonl"), "a") as f:
                 f.write(json.dumps(rec) + "\n")

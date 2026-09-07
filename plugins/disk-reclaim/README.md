@@ -31,6 +31,12 @@ Two hooks come with it, both exit 0 on every path:
 
 Nothing runs on Stop.
 
+## Unattended
+
+`scripts/orchestrate.sh` is one locked, capped, transcript-less firing that asks live owners, records
+the dead, gates everything in dry run, and writes `~/.claude/disk-reclaim/decision-card.md`. It
+deletes nothing. Every ask and reply lands in `asks.jsonl`; `scripts/disk_asks.py status` shows them.
+
 ## Use
 
 Say "we're running out of disk" or "is it safe to delete the simulators" and the skill triggers.
