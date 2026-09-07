@@ -1,5 +1,5 @@
 {
-  "description": "disk-reclaim: at SessionStart, a one-line low-disk nudge (sub-second, global cooldown, snoozable) and a self-detaching (setsid), niced, read-only census that refreshes ~/.claude/disk-reclaim/last-census.json only when the ledger is over six hours old; the same census is registered at SessionEnd (which in headless sessions fires one to three minutes after the CLI returns) and the lock makes whichever runs second a no-op. Nothing on Stop. Every command exits 0 on every path.",
+  "description": "disk-reclaim: at SessionStart, a one-line low-disk nudge (sub-second, global cooldown, snoozable) and a self-detaching (setsid), niced, read-only census that refreshes ~/.claude/disk-reclaim/last-census.json only when the ledger is over six hours old; the same census is registered at SessionEnd (which in headless sessions fires one to three minutes after the CLI returns) and the lock makes whichever runs second a no-op. Nothing on Stop. Every command exits 0 on every path. Timeouts are 60 s: the scripts finish in well under a second in-process (hook-log.jsonl ms_in_process 0), but on a loaded host with a dozen concurrent SessionStart hooks the harness measured them at 10.4-10.6 s and cancelled 22 of 23 firings at the old 10 s limit.",
   "hooks": {
     "SessionStart": [
       {
@@ -8,12 +8,12 @@
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/disk_nudge.py\" 2>/dev/null || true",
-            "timeout": 10
+            "timeout": 60
           },
           {
             "type": "command",
             "command": "nice -n 19 python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/disk_census.py\" --ledger --if-stale 21600 --detach 2>/dev/null || true",
-            "timeout": 10
+            "timeout": 60
           }
         ]
       }
@@ -24,7 +24,7 @@
           {
             "type": "command",
             "command": "nice -n 19 python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/disk_census.py\" --ledger --if-stale 21600 --detach 2>/dev/null || true",
-            "timeout": 10
+            "timeout": 60
           }
         ]
       }
