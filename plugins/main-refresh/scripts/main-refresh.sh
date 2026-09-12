@@ -53,6 +53,11 @@ self_path="$(cd "$(dirname "$0")" 2>/dev/null && pwd)/$(basename "$0")"
 say() { echo "MAIN_REFRESH: $*"; }
 fix() { echo "MAIN_REFRESH_FIX: $*"; }
 
+case "$cmd" in
+  detect|check|apply|park) ;;
+  *) say "SKIP unknown command '$cmd' (detect|check|apply|park)"; exit 50 ;;
+esac
+
 git rev-parse --git-dir >/dev/null 2>&1 || { say "SKIP not a git repository"; exit 50; }
 
 # The main worktree is the first entry of `git worktree list --porcelain`.
@@ -243,6 +248,3 @@ Moved by main-refresh park so main could fast-forward. $moved path(s)." >/dev/nu
   say "PARKED $moved path(s) on branch $branch at $wt_dir"
   do_ff; exit $?
 fi
-
-say "SKIP unknown command '$cmd' (detect|check|apply|park)"
-exit 50
