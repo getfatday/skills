@@ -26,6 +26,7 @@ The CLIs work standalone. Install them with uv and call `gfd-monarch` or `gfd-im
 |--------|----------|--------------|
 | **monarch** | `/monarch`, `/monarch:transactions`, `/monarch:budget`, `/monarch:cashflow`, `/monarch:status` | Query Monarch Money accounts, transactions, budgets, and cash flow |
 | **imdb** | `/imdb`, `/imdb:movie`, `/imdb:person`, `/imdb:top` | Search IMDB for movies, people, box office, and top lists |
+| **main-refresh** | none (hook + skill) | Keep a local main checkout equal to origin/main for people who branch through Claude worktrees. Fast-forwards when safe, parks dirty files and local-only commits on a wip branch instead of stashing. |
 
 ### Usage
 
