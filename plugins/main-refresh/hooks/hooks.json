@@ -1,0 +1,16 @@
+{
+  "description": "main-refresh: on every UserPromptSubmit, keep the local main checkout at origin/main for repositories that have at least one Claude worktree. The hook consumes stdin, exits 0 on every path, skips cloud sessions (CLAUDE_CODE_REMOTE=true), non-git directories and repositories without an origin, debounces a detached background fetch of origin to once per 300 s (marker file in the git common dir), then runs main-refresh.sh apply --quiet and forwards its MAIN_REFRESH lines unchanged. It fast-forwards only when no local file is touched; BLOCKED and DIVERGED states print a MAIN_REFRESH_FIX hint naming the park command and change nothing. Timeout 15 s: the script runs a handful of local git reads and finishes in well under a second on an idle host.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/main-refresh-hook.sh\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}

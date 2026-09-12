@@ -87,3 +87,8 @@ Commands: `/copilot-money`, `/copilot-money:transactions`, `/copilot-money:budge
 ### imdb
 IMDB movie and TV data. Wraps `gfd-imdb` CLI.
 Commands: `/imdb`, `/imdb:movie`, `/imdb:person`, `/imdb:top`
+
+### main-refresh
+Keeps a local main checkout equal to origin/main for people who branch through Claude worktrees.
+Checks safety before acting, fast-forwards only when safe, and parks dirty files or local-only
+commits on a wip branch instead of stashing. A UserPromptSubmit hook applies it on every prompt.

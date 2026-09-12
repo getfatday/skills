@@ -1,0 +1,16 @@
+{
+  "name": "main-refresh",
+  "description": "Keep a local main checkout equal to origin/main for people who do their branch work in Claude worktrees: decide safety before acting, fast-forward only when no local file is touched, and park local work (dirty files, colliding untracked files, local-only commits) losslessly on a wip/main-<date>-<n> branch. Never stashes, never deletes a lock, never resets without parking first.",
+  "version": "0.1.0",
+  "author": {
+    "name": "getfatday"
+  },
+  "keywords": [
+    "git",
+    "main",
+    "worktree",
+    "fast-forward",
+    "park",
+    "hooks"
+  ]
+}

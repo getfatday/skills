@@ -147,6 +147,23 @@
         "cache",
         "hooks"
       ]
+    },
+    {
+      "name": "main-refresh",
+      "source": "./plugins/main-refresh",
+      "description": "Keep a local main checkout equal to origin/main for people who branch through Claude worktrees. Decides safety before acting (UP_TO_DATE, SAFE, BLOCKED, DIVERGED, LOCKED), fast-forwards only when safe, and parks dirty files and local-only commits losslessly on a wip/main-<date>-<n> branch. Never stashes. UserPromptSubmit hook applies from any checkout.",
+      "author": {
+        "name": "getfatday"
+      },
+      "category": "developer-tools",
+      "keywords": [
+        "git",
+        "main",
+        "worktree",
+        "fast-forward",
+        "park",
+        "hooks"
+      ]
     }
   ]
 }
