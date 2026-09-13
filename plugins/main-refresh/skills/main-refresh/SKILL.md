@@ -36,6 +36,21 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/main-refresh.sh" park
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/main-refresh.sh" detect
 ```
 
+`${CLAUDE_PLUGIN_ROOT}` only exists inside a hook or a skill's own execution. From a person's own
+shell, run the resolved install path instead:
+
+```bash
+~/.claude/plugins/cache/getfatday-skills/main-refresh/<version>/scripts/main-refresh.sh check
+```
+
+You do not need to work out that path by hand: every `MAIN_REFRESH_FIX` line the script prints
+carries its own absolute path, so copying a FIX line out of the conversation and running it always
+works, wherever the plugin is installed.
+
+With no command given, the script defaults to `check`. Any other command name is rejected up
+front, before any git command runs: it prints `MAIN_REFRESH: SKIP unknown command '<cmd>'
+(detect|check|apply|park)` and exits 50.
+
 Every git call targets the main worktree, found from `git worktree list`, so the current directory
 does not matter. Add `--quiet` to suppress the UP_TO_DATE line (the hook does this).
 
@@ -61,19 +76,27 @@ States and exit codes:
 | `BLOCKED` | 20 | a dirty tracked file or an untracked file sits on a path upstream changed; each path is listed on a `MAIN_REFRESH_BLOCKING` line |
 | `DIVERGED` | 30 | local main has commits origin/main does not; check and apply stop, park handles it |
 | `LOCKED` | 40 | `.git/index.lock` is over an hour old with no git process running; the script never removes it |
-| `SKIP` | 50 | no origin, no main branch, main checked out nowhere, or origin/main not fetched |
+| `SKIP` | 50 | not a git repository, no origin, no main branch, main checked out nowhere, origin/main not fetched, or an unknown command |
 
 ## What park does
 
+`park` always prints two lines, never one. The PARKED line has a different shape depending on
+whether main was BLOCKED or DIVERGED.
+
 On BLOCKED: creates the branch and a worktree at `.claude/worktrees/wip-main-<date>-<n>` from the
 current main HEAD, copies dirty tracked files and moves colliding untracked files there, commits
-them, clears main's tracked changes, then fast-forwards main.
+them, clears main's tracked changes, then fast-forwards main. Output is
+`PARKED <n> path(s) on branch <branch> at <dir>` followed by the fast-forward's own line
+(`APPLIED main fast-forwarded ...`, or a LOCKED/FAILED line if the fast-forward itself could not
+complete).
 
 On DIVERGED: the same branch is created at the current main HEAD, so every local-only commit is
 reachable from it. Dirty and colliding files are committed on top when there are any. Main is
 then reset to origin/main, because a fast-forward is impossible when histories differ. Output is
 `PARKED <n> path(s) and <k> commit(s) on branch <branch> at <dir>` followed by
 `APPLIED main reset to origin/main <sha>`.
+
+Do not treat either PARKED line as the whole output: always read the line after it too.
 
 The parked branch is an ordinary branch. Nothing about it is special: rebase it, cherry-pick from
 it, open a PR from it, or delete it when it has served its purpose.
@@ -106,6 +129,19 @@ it, open a PR from it, or delete it when it has served its purpose.
   confirm no git command of theirs is running.
 - `SKIP`: state the reason from the line (no origin, no main, not fetched). Run `git fetch origin`
   and rerun if the reason is an unfetched origin/main.
+
+## Reading a FIX line
+
+A `MAIN_REFRESH_FIX` line is a command followed by a `   # comment` explaining what it does, for
+example:
+
+```
+MAIN_REFRESH_FIX: /path/to/main-refresh.sh park   # moves these into their own worktree, then fast-forwards main
+```
+
+If you copy the line and run it as-is that is fine; a shell treats `#` as a comment and ignores
+the rest. But if you parse the line to extract the exact command (for a script, a hook, or a
+string match), strip the trailing `# comment` first, or the comparison will not match.
 
 ## When a hook printed a MAIN_REFRESH line
 
