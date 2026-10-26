@@ -1061,7 +1061,7 @@ def run_lock(sd):
 
 def rid_for(label, key, now):
     """Stable for one run: the same item in the same plan gets the same id."""
-    h = hashlib.sha1(f"{key}\0{now}".encode()).hexdigest()[:6]
+    h = hashlib.sha256(f"{key}\0{now}".encode()).hexdigest()[:6]
     day = dt.datetime.fromtimestamp(now).strftime("%Y%m%d")
     return f"{day}-{slugify(label, 32)}-{h}"
 
