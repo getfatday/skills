@@ -321,6 +321,7 @@ class DehydrateTests(unittest.TestCase):
 
     def test_mains_snapshot_never_touches_checkout(self):
         f = self.f
+        write(os.path.join(f.repo, ".gitignore"), open(os.path.join(f.repo, ".gitignore")).read() + ".claude/worktrees/\n")
         write(os.path.join(f.repo, "a.txt"), "main dirty\n")
         write(os.path.join(f.repo, "loose.txt"), "loose\n")
         before = status_set(f.repo)

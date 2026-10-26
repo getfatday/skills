@@ -867,6 +867,8 @@ def snapshot_tree(path, skip=()):
         head_ok = git(path, "rev-parse", "--verify", "-q", "HEAD").returncode == 0
         if head_ok:
             git(path, "read-tree", "HEAD", env=env, check=True)
+        # excluding an already-ignored path is an error for git add, and unnecessary
+        skip = [k for k in skip if git(path, "check-ignore", "-q", "--", k.rstrip("/")).returncode != 0]
         git(path, "add", "-A", "--", ".", *[f":(exclude){k}" for k in skip], env=env, check=True, timeout=1800)
         return gout(path, "write-tree", env=env) or None
     finally:
@@ -1237,10 +1239,15 @@ def apply_plan(args, cfg, plan, sd):
     for m in [m for m in plan["mains"] if m["action"] == "snapshot"]:
         if res["paused"] or not floor_ok():
             break
-        mp = os.path.realpath(m["path"])
-        skip = sorted(os.path.relpath(os.path.realpath(w["path"]), mp) + "/" for w in list_worktrees(m["repo"])[1:]
-                      if under(os.path.realpath(w["path"]), mp) and os.path.realpath(w["path"]) != mp)
-        f = worktree_facts(m, cfg, skip)
+        try:
+            mp = os.path.realpath(m["path"])
+            skip = sorted(os.path.relpath(os.path.realpath(w["path"]), mp) + "/" for w in list_worktrees(m["repo"])[1:]
+                          if under(os.path.realpath(w["path"]), mp) and os.path.realpath(w["path"]) != mp)
+            f = worktree_facts(m, cfg, skip)
+            tree = snapshot_tree(m["path"], skip)
+        except Exception as e:  # one unreadable checkout must not stop the rest
+            res["mains"].append({"path": m["path"], "ok": False, "error": f"not captured: {str(e)[:300]}"})
+            continue
         why = (f["submodule_dirty"] and f"dirty submodule {f['submodule_dirty'][0]}") or \
               (f["nested_repos"] and f"nested git repo {f['nested_repos'][0]}") or \
               (f["untracked_big"] and f"untracked file over cap: {f['untracked_big'][0]}") or \
@@ -1248,7 +1255,6 @@ def apply_plan(args, cfg, plan, sd):
         if why:
             res["mains"].append({"path": m["path"], "ok": False, "error": f"not captured: {why}"})
             continue
-        tree = snapshot_tree(m["path"], skip)
         if tree and last_tree.get(m["repo"]) == tree:
             res["mains"].append({"path": m["path"], "ok": True, "skipped": "unchanged since last snapshot"})
             continue
