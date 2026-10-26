@@ -1,0 +1,22 @@
+{
+  "description": "dehydrate: at SessionStart, one DEHYDRATE line at most once per nudge_cooldown_hours (default 24) when the cached plan has stale sessions or worktrees, and a detached, niced refresh of that cached plan when it is over refresh_after_hours (default 6) old. The refresh is read-only unless config auto_apply is true. Every command exits 0 on every path.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/dehydrate.py\" nudge 2>/dev/null || true",
+            "timeout": 60
+          },
+          {
+            "type": "command",
+            "command": "nice -n 19 python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/dehydrate.py\" refresh --detach --if-stale 2>/dev/null || true",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  }
+}
