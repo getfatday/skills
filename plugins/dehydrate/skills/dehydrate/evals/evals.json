@@ -1,0 +1,61 @@
+{
+  "skill_name": "dehydrate",
+  "notes": "Each eval runs in a sandbox from tests/make_fixture.py; tests/grade_eval.py checks the sandbox state mechanically. Eval 3 is pre-dehydrated (setup: apply) and exercises the rehydrate skill.",
+  "evals": [
+    {
+      "id": 1,
+      "name": "clean-out-older-than-a-week",
+      "setup": "none",
+      "prompt": "i've got way too many claude sessions and worktrees hanging around and my disk is filling up. close out everything that's older than a week but don't lose any of my work",
+      "expected_output": "Runs plan, summarizes it (closes, removals, holds with reasons), runs apply --yes, reports free disk before/after and anything not done, points at index.md and /rehydrate.",
+      "files": [],
+      "assertions": [
+        "stale worktrees dirty, clean and unpushed are removed and each has a manifest record with a verifying bundle",
+        "kept and held worktrees (recent, busy, locked, nested, ignored-big, hermes) still exist",
+        "main branch and every wt-* branch are unchanged; nothing was pushed to origin",
+        "claude rm was called for b0000001 and b0000003 and never for b0000002 or b0000004",
+        "final reply names the held worktrees with reasons and mentions rehydrate"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "preview-three-days-no-changes",
+      "setup": "none",
+      "prompt": "before you touch anything, what would get closed if i used a 3 day window instead of a week? just tell me, don't change anything",
+      "expected_output": "Runs plan --days 3 only, reports counts and holds, makes no changes, offers to apply.",
+      "files": [],
+      "assertions": [
+        "no worktree was removed and no manifest was written",
+        "the fake claude binary was never called with stop or rm",
+        "the reply states how many sessions and worktrees would close"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "rehydrate-widget-session",
+      "setup": "apply",
+      "prompt": "last week you cleaned up my old sessions. i need back the one where i was fixing the widget, with all my uncommitted changes",
+      "expected_output": "Uses list widget, rehydrates the matching record, worktree restored on wt-dirty with modified/untracked/ignored files, gives the claude --resume command.",
+      "files": [],
+      "assertions": [
+        "the dirty worktree exists again on branch wt-dirty",
+        "a.txt holds the modified content, new/untracked.txt exists, gone.txt is absent, secrets.local is restored",
+        "the transcript for session ...0001 exists under CLAUDE_CONFIG_DIR/projects",
+        "the reply includes claude --resume aaaaaaaa-0000-0000-0000-000000000001"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "dehydrate-one-worktree-only",
+      "setup": "none",
+      "prompt": "can you dehydrate just the 'clean' worktree in the app repo? leave everything else alone for now",
+      "expected_output": "Runs plan/apply with --only clean; only that worktree is removed and recorded.",
+      "files": [],
+      "assertions": [
+        "the clean worktree is removed and has a manifest record",
+        "the dirty and unpushed worktrees and the leftover dir still exist",
+        "no session was closed"
+      ]
+    }
+  ]
+}

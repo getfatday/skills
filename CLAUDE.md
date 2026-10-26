@@ -92,3 +92,9 @@ Commands: `/imdb`, `/imdb:movie`, `/imdb:person`, `/imdb:top`
 Keeps a local main checkout equal to origin/main for people who branch through Claude worktrees.
 Checks safety before acting, fast-forwards only when safe, and parks dirty files or local-only
 commits on a wip branch instead of stashing. A UserPromptSubmit hook applies it on every prompt.
+
+### dehydrate
+Closes stale Claude Code sessions and git worktrees without losing work: snapshots each idle
+worktree into a ref, bundle and tarballs, archives transcripts, records a user-level manifest,
+then removes the worktree and closes the session. `/rehydrate` restores it exactly and resumes.
+A SessionStart hook nudges when stale sessions pile up.
