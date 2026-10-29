@@ -24,6 +24,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from disk_state import state_dir  # noqa: E402
+from auto_classes import AUTO_CLASSES  # noqa: E402
 
 T0 = time.perf_counter()
 
@@ -67,7 +68,7 @@ def auto_report(d):
     return (f"DISK_RECLAIM_AUTO: since {since or 'install'} auto-reclaim freed {freed/1e9:.1f} GB in {len(done)} action(s)"
             + (f" ({', '.join(f'{k} {v}' for k, v in sorted(by.items()))})" if by else "")
             + (f", {len(acts) - len(done)} failed" if len(acts) > len(done) else "")
-            + f"; now {acts[-1].get('free_mb', 0) / 1024:.1f} GiB free. Ledger: {d}/ledger.jsonl. Turn off: echo false > {d}/auto")
+            + f"; now {acts[-1].get('free_mb', 0) * 2 ** 20 / 1e9:.1f} GB free. Ledger: {d}/ledger.jsonl. Turn off: echo false > {d}/auto")
 
 
 def main():
@@ -89,8 +90,10 @@ def main():
         top = ""
         try:
             c = json.load(open(os.path.join(d, "last-census.json")))
+            # auto classes are automatic mode's business, and a just-reclaimed path is not "regenerable now"
             regen = sorted((r for r in c.get("rows", [])
-                            if r.get("safety") == "regenerable" and r.get("measured_bytes", 0) > 0),
+                            if r.get("safety") == "regenerable" and r.get("measured_bytes", 0) > 0
+                            and r.get("class") not in AUTO_CLASSES and os.path.exists(r["path"].split(" [")[0])),
                            key=lambda r: -r["measured_bytes"])[:3]
             home = os.path.expanduser("~")
             top = "; ".join(f"{r['measured_bytes']/1e9:.1f} GB {r['path'].replace(home, '~')}" for r in regen)
@@ -110,6 +113,9 @@ def main():
 
 
 if __name__ == "__main__":
+    if "--help" in sys.argv[1:] or "-h" in sys.argv[1:]:
+        print(__doc__)
+        sys.exit(0)
     try:
         main()
     except Exception:

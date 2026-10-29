@@ -40,7 +40,7 @@ had exited. So the hook starts the census with `--detach`, which double-forks in
 | `auto.lock` | `disk_reclaim.py --auto` | flock; a second pass exits at once |
 | `free-log.jsonl` | `disk_reclaim.py --auto` | one `auto-run` line at the start and end of each pass and one `auto-reclaim` line per action: class, path, outcome, freed_bytes, free_mb |
 | `last-auto-reported` | nudge | ts of the newest auto action already reported in a `DISK_RECLAIM_AUTO:` line |
-| `ledger.jsonl` | `disk_reclaim_record.py`, `disk_reclaim.py` | append-only decisions and removals: path, bytes, command, decided_by (human email, `owner:<session>` with verdict, or `auto:cache`), keep_until, and for removals reclaimed_bytes and removed_by (the acting session). `disk_reclaim.py` reads this and refuses any path without an allowing decision |
+| `ledger.jsonl` | `disk_reclaim_record.py`, `disk_reclaim.py` | append-only decisions and removals: path, bytes, command, decided_by (human email, `owner:<session>` with verdict, `auto:cache`, or `auto:<class>` for automatic mode; decision `reclaim`, then `reclaimed` or `failed`), keep_until, and for removals reclaimed_bytes and removed_by (the acting session). `disk_reclaim.py` reads this and refuses any path without an allowing decision |
 
 One directory per user, not per repo. The disk is machine-wide; a per-project ledger would fork
 the threshold, snooze, and staleness clocks across every repo you work in and miss most session
@@ -72,6 +72,8 @@ hook surfaces the condition, the model chooses the moment.
   runtime download.
 - Lower `cooldown-hours` if you want every fresh session to hear it; raise it if you run many.
 - `touch ~/.claude/disk-reclaim/snooze` after a deliberate "not today"; it expires on its own.
+- Tests feed free space with `DISK_RECLAIM_FAKE_FREE_GB="5,5,30"`: one value for the start check,
+  then one per action before it runs; the last value repeats.
 - Automatic reclaim: raise `target-gb` to keep more space free, lower `headroom-gb` to stop sooner,
   `echo false > auto` to turn it off. `disk_reclaim.py --auto` (no `--execute`) shows what the next
   pass would do without writing anything.

@@ -93,6 +93,12 @@ Keeps a local main checkout equal to origin/main for people who branch through C
 Checks safety before acting, fast-forwards only when safe, and parks dirty files or local-only
 commits on a wip branch instead of stashing. A UserPromptSubmit hook applies it on every prompt.
 
+### disk-reclaim
+Recovers disk on a macOS dev laptop without losing work: read-only census, owner asks, a ledger-gated
+executor (`disk_reclaim.py`) as the only delete path. Automatic mode (on by default) reclaims spools,
+old Claude CLI versions, idle job scratch and, through dehydrate `--pressure`, stale worktrees when free
+space is under `target-gb`. Tests: `python3 -m unittest discover -s plugins/disk-reclaim/tests`.
+
 ### dehydrate
 Closes stale Claude Code sessions and git worktrees without losing work: snapshots each idle
 worktree into a ref, bundle and tarballs, archives transcripts, records a user-level manifest,

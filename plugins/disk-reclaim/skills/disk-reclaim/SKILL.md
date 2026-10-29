@@ -159,6 +159,14 @@ headroom-gb` (default 5):
 4. `stale-worktrees`: `dehydrate.py apply --yes --pressure --target-gb <target+headroom>` from the
    newest installed dehydrate (0.1.3+). Dehydrate snapshots before it removes and keeps all its holds.
 
+Rows appear only above a size floor, measured as space used on disk (`du`): job scratch 10 MB, a
+spool 100 MB unless it is already over the threshold, the desktop VM bundle
+(`~/Library/Application Support/Claude/vm_bundles`) 50 MB. The `stale-worktrees` row's path is the
+installed dehydrate plugin dir; it names who does the work, it is never removed, and its ledger
+`reclaimed` line records dehydrate's own result (the `pressure` JSON in the note). The roster is
+`claude agents --json --all`: a list of objects with `id` (the background id, the jobs/<id> name) and
+`state`.
+
 Every probe fails closed: a roster, `lsof` or `find` that errors or times out makes the row
 ineligible. Each action writes an `auto:<class>` decision and a `reclaimed` or `failed` outcome to
 the ledger and a line to `free-log.jsonl`; the next SessionStart prints one `DISK_RECLAIM_AUTO:` line

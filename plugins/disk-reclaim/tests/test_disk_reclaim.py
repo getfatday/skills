@@ -120,15 +120,21 @@ exit 1
 
     def census(self, classes="auto"):
         self.py("disk_census.py", "--classes", classes, "--ledger")
-        return {r["path"]: r for r in json.load(open(os.path.join(self.state, "last-census.json")))["rows"]}
+        with open(os.path.join(self.state, "last-census.json")) as fh:
+            return {r["path"]: r for r in json.load(fh)["rows"]}
+
+    def jsonl(self, name):
+        p = os.path.join(self.state, name)
+        if not os.path.exists(p):
+            return []
+        with open(p) as fh:
+            return [json.loads(x) for x in fh]
 
     def ledger(self):
-        p = os.path.join(self.state, "ledger.jsonl")
-        return [json.loads(x) for x in open(p)] if os.path.exists(p) else []
+        return self.jsonl("ledger.jsonl")
 
     def free_log(self):
-        p = os.path.join(self.state, "free-log.jsonl")
-        return [json.loads(x) for x in open(p)] if os.path.exists(p) else []
+        return self.jsonl("free-log.jsonl")
 
     def cleanup(self):
         shutil.rmtree(self.root, ignore_errors=True)
@@ -309,6 +315,12 @@ class AutoModeTests(unittest.TestCase):
         self.assertEqual(f.ledger(), [])
         self.assertEqual(f.free_log(), [])
         self.assertFalse(os.path.exists(f.dehydrate_log))
+        self.assertFalse(os.path.exists(os.path.join(f.state, "auto.lock")))   # not even the lock
+
+    def test_nudge_help_is_inert(self):
+        r = self.f.py("disk_nudge.py", "--help")
+        self.assertIn("SessionStart hook", r.stdout)
+        self.assertFalse(os.path.exists(os.path.join(self.f.state, "hook-log.jsonl")))
 
     def test_off_and_above_target_do_nothing(self):
         f = self.f

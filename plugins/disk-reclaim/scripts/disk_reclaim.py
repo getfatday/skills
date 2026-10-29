@@ -251,12 +251,13 @@ def run_auto(d, execute):
     if free >= target:
         print(f"auto-reclaim: {free/1e9:.1f} GB free, at or over target {cfg['target_gb']:g} GB; nothing to do")
         return 0
-    lock = open(os.path.join(d, "auto.lock"), "w")
-    try:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        print("auto-reclaim: another pass holds auto.lock")
-        return 0
+    if execute:  # a dry run writes nothing, not even the lock
+        lock = open(os.path.join(d, "auto.lock"), "w")
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print("auto-reclaim: another pass holds auto.lock")
+            return 0
     with contextlib.suppress(OSError):
         os.nice(max(0, 19 - os.nice(0)))
     rows = load_census(d)
@@ -265,7 +266,7 @@ def run_auto(d, execute):
         return 3
     start = free
     if execute:
-        free_log(d, {"event": "auto-run", "phase": "start", "target_gb": cfg["target_gb"], "headroom_gb": cfg["headroom_gb"]})
+        free_log(d, {"event": "auto-run", "phase": "start", "free_mb": start // 2 ** 20, "target_gb": cfg["target_gb"], "headroom_gb": cfg["headroom_gb"]})
     ledger = load_ledger(d)
     done = failed = 0
     for row in auto_classes.auto_order(rows):
