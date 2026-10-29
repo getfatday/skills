@@ -8,9 +8,10 @@ description: >-
   executor. Use this whenever disk is low or someone says they are running out of space, "No space
   left on device", the disk is full, or asks to clean up, free up, reclaim, or recover space, or asks
   whether simulators, runtimes, worktrees, node_modules, caches, Docker, or Claude job and transcript
-  dirs are safe to delete. Also use it when a SessionStart hook has printed a DISK_RECLAIM line, and
-  when asked to tune the disk hooks (threshold, cooldown, snooze). Do not use it for a single known
-  file the user already named for deletion.
+  dirs are safe to delete. Also use it when a SessionStart hook has printed a DISK_RECLAIM or
+  DISK_RECLAIM_AUTO line, when asked what automatic reclaim did or how to turn it off, and when asked
+  to tune the disk hooks (threshold, cooldown, snooze, target-gb, headroom-gb). Do not use it for a
+  single known file the user already named for deletion.
 ---
 
 # Disk reclaim
@@ -57,6 +58,12 @@ Every row needs a decision from someone before the executor will touch it. Sort 
   mid-anything in them. When the user asked to recover space, record them yourself with
   `--decided-by auto:cache` and let the executor take them. Say what you are removing and what it
   costs to get back.
+- **The auto classes** (`hook-spool-rotation`, `claude-cli-versions`, `claude-job-scratch`,
+  `stale-worktrees`): automatic mode handles these on its own under the free-space target (see
+  "Automatic reclaim" below). When the user asked to recover space now, run
+  `disk_reclaim.py --auto --execute` instead of recording them one by one; it records
+  `auto:<class>` for each and re-checks every row live. `claude-desktop-vm` is not one of them: it
+  is report-only and goes to the human, and only while the Claude desktop app is closed.
 - **A session owns it** (`owner_session` set, or a `node_modules`, worktree, job dir, or tagged
   simulator device that a session could be using): ask that session in step 4. `node_modules`
   inside a repo is in this group even though it is regenerable, because a reinstall mid-task is a
@@ -134,6 +141,39 @@ One short block: container free before and after, what was removed with sizes an
 what was kept and why (owner verdict or human choice, with any until-condition), what is still
 queued for a decision, and what it would cost to get each removed item back. Numbers in a table.
 
+## Automatic reclaim
+
+On by default. When the detached census (SessionStart or SessionEnd) sees container free space under
+`target-gb` (default 15), it runs `disk_reclaim.py --auto --execute`: one `auto.lock`, niced, never in
+a session's turn. It works in this order and stops as soon as free space reaches `target-gb +
+headroom-gb` (default 5):
+
+1. `hook-spool-rotation`: spool files over `spool-threshold-gb` (1) from `spool-files` (default
+   `~/.claude/observatory/spool.jsonl`) are renamed and gzipped in place, noted in
+   `README-rotation.txt`. Nothing is deleted; a file still being written stays uncompressed.
+2. `claude-cli-versions`: builds that are not the `~/.local/bin/claude` target, not newer, not
+   written in the last hour, not hard-linked, and not used by a process (`ps` and `lsof`).
+3. `claude-job-scratch`, largest first: `~/.claude/jobs/<id>/tmp` where `claude agents --json --all`
+   reads and lists the session as not working/busy (or no longer lists it), nothing inside changed in
+   24 h, and `lsof +D` shows nothing open. Only `tmp/` is emptied.
+4. `stale-worktrees`: `dehydrate.py apply --yes --pressure --target-gb <target+headroom>` from the
+   newest installed dehydrate (0.1.3+). Dehydrate snapshots before it removes and keeps all its holds.
+
+Rows appear only above a size floor, measured as space used on disk (`du`): job scratch 10 MB, a
+spool 100 MB unless it is already over the threshold, the desktop VM bundle
+(`~/Library/Application Support/Claude/vm_bundles`) 50 MB. The `stale-worktrees` row's path is the
+installed dehydrate plugin dir; it names who does the work, it is never removed, and its ledger
+`reclaimed` line records dehydrate's own result (the `pressure` JSON in the note). The roster is
+`claude agents --json --all`: a list of objects with `id` (the background id, the jobs/<id> name) and
+`state`.
+
+Every probe fails closed: a roster, `lsof` or `find` that errors or times out makes the row
+ineligible. Each action writes an `auto:<class>` decision and a `reclaimed` or `failed` outcome to
+the ledger and a line to `free-log.jsonl`; the next SessionStart prints one `DISK_RECLAIM_AUTO:` line
+summarizing them. `disk_reclaim.py --auto` without `--execute` is a dry run that writes nothing.
+To turn it off: `echo false > ~/.claude/disk-reclaim/auto`. Report what it did from the ledger and
+free-log; never re-run a class by hand to "finish" what it skipped, since a skip is a check that failed.
+
 ## When nobody is at a keyboard: the orchestrator firing
 
 The nudge only prints a line; in measurement it fired 17 times over three days and no session acted.
@@ -171,8 +211,9 @@ step 2 with the ledger already written.
 
 ## Files
 
-- `scripts/disk_census.py`: read-only census, human table or JSON, `--ledger`, `--if-stale`, `--detach`.
-- `scripts/disk_reclaim.py`: the ledger-gated executor. Dry run by default; `--execute`, `--path`, `--explain`.
+- `scripts/disk_census.py`: read-only census, human table or JSON, `--ledger`, `--if-stale`, `--detach`, `--classes`.
+- `scripts/disk_reclaim.py`: the ledger-gated executor. Dry run by default; `--execute`, `--path`, `--explain`, `--auto`.
+- `scripts/auto_classes.py`: the auto classes' census rows, live eligibility checks, spool rotation and the dehydrate call.
 - `scripts/disk_reclaim_record.py`: append a decision (owner verdict, human choice, or auto:cache) to `ledger.jsonl`.
 - `scripts/disk_nudge.py`: SessionStart nudge, exit 0 always, logs to `hook-log.jsonl`.
 - `scripts/disk_state.py`: resolves the shared state dir (`DISK_RECLAIM_DIR` overrides).

@@ -3,7 +3,9 @@
 
 Usage:
   disk_reclaim_record.py --path P --bytes N --cmd "C" --decided-by WHO
-   WHO is a human email, 'owner:<session name>' (with --verdict), or 'auto:cache' (ownerless caches only).
+   WHO is a human email, 'owner:<session name>' (with --verdict), 'auto:cache' (ownerless caches only), or
+   'auto:<class>' for an auto class (hook-spool-rotation, claude-cli-versions, claude-job-scratch, stale-worktrees);
+   the executor re-checks an auto:<class> row live before it acts.
                          [--class CLS] [--owner SESSION] [--verdict KEEP|SAFE|UNKNOWN]
                          [--until COND] [--note TEXT]
 
@@ -26,7 +28,7 @@ def main():
     ap.add_argument("--bytes", type=int, required=True, help="measured bytes before the reclaim")
     ap.add_argument("--cmd", required=True)
     ap.add_argument("--decided-by", required=True,
-                    help="who decided: a human email, 'owner:<session name>' for a session verdict, or 'auto:cache' for an ownerless cache row")
+                    help="who decided: a human email, 'owner:<session name>' for a session verdict, 'auto:cache' for an ownerless cache row, or 'auto:<class>' for an auto-class row")
     ap.add_argument("--class", dest="cls", default="")
     ap.add_argument("--owner", default="")
     ap.add_argument("--verdict", default="", choices=["", "KEEP", "SAFE", "UNKNOWN"])
