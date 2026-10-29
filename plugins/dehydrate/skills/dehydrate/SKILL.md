@@ -63,6 +63,27 @@ re-plan.
    Point the user at `~/.claude/dehydrated/index.md` (the table of everything ever dehydrated)
    and tell them `/rehydrate <words>` brings any item back.
 
+## Disk pressure
+
+When the user needs space now ("free 20 GB", "the disk is full, clear old worktrees"), or the
+disk-reclaim plugin delegates to this skill, use `D plan --pressure --target-gb N` and then
+`D apply --yes --pressure --target-gb N`. Pressure mode ignores `--days` for worktrees (a
+worktree touched an hour ago is a candidate), orders candidates least recently active first and
+then largest, and dehydrates one at a time, stopping as soon as free disk reaches N. Every hold
+below still applies, and so does every keep that is not about age: this session's cwd, a live
+process inside, a working/busy or interactive session bound to it. A session that has been
+`done` or `blocked` for more than 24 h no longer protects its worktree; it is archived and closed
+with it. Pressure mode closes no other session and leaves leftover dirs and main checkouts alone.
+The apply JSON carries `pressure: {target_gb, reached, free_checked_gb}`. Reaching the target and
+running out of candidates (`reached: false`) are both exit 0 (1 if an item was not done); neither is
+a pause. The disk floor still wins: under `disk_floor_gb` (default 2 GB) nothing runs and apply
+exits 3, because the archives are written to the same disk (snapshots and tarballs of changed and
+gitignored-real files, not node_modules and other tool output). `--only` is refused with `--pressure`.
+"Least recently active" is the newest of the worktree's dir, HEAD and reflog mtimes, its changed
+files' mtimes, and its bound sessions' activity; a session's "more than 24 h" is measured the same
+way (transcript, job state and timeline mtimes), not from when it started. Report how far it got
+and what is still held.
+
 ## What the rules protect
 
 - **Active means kept**: a session or worktree touched in the last `--days` days, a session in

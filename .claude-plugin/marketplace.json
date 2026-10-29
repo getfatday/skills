@@ -168,7 +168,7 @@
     {
       "name": "dehydrate",
       "source": "./plugins/dehydrate",
-      "description": "Close stale Claude Code sessions and git worktrees without losing work, and bring them back. Dehydrate snapshots each idle worktree into refs/dehydrated/<id> plus a git bundle and byte-exact tarballs, archives transcripts, writes a user-level manifest, then removes the worktree and closes the session. Rehydrate restores it exactly and prints claude --resume. SessionStart stale-session nudge. Stdlib only.",
+      "description": "Close stale Claude Code sessions and git worktrees without losing work, and bring them back. Dehydrate snapshots each idle worktree into refs/dehydrated/<id> plus a git bundle and byte-exact tarballs, archives transcripts, writes a user-level manifest, then removes the worktree and closes the session. Rehydrate restores it exactly and prints claude --resume. --pressure frees disk to a target, least recently active first. SessionStart stale-session nudge. Stdlib only.",
       "author": {
         "name": "getfatday"
       },

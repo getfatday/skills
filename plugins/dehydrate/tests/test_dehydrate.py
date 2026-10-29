@@ -456,6 +456,118 @@ class DehydrateTests(unittest.TestCase):
         self.assertTrue(r1.startswith("DEHYDRATE:"))
         self.assertEqual(r2, "")  # cooldown
 
+    # ---- --pressure: free disk target, idle window ignored, one worktree at a time
+
+    def pressure_run(self, *a, fake="", check=False):
+        env = dict(ENV, DEHYDRATE_FAKE_FREE_GB=fake) if fake else ENV
+        f = self.f
+        cmd = [sys.executable, SCRIPT, *a, "--roots", f.src, "--agents-json", f.agents, "--now", str(NOW),
+               "--claude-home", f.home, "--claude-bin", f.claude, "--state-dir", f.state]
+        return subprocess.run(cmd, capture_output=True, text=True, env=env, cwd=f.root)
+
+    def test_pressure_plan_ignores_window_keeps_holds(self):
+        f = self.f
+        r = self.pressure_run("plan", "--json", "--pressure", "--target-gb", "10", "--days", "60")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        p = json.loads(r.stdout)
+        a = self.actions(p)
+        self.assertEqual(a[f.wt["recent"]][0], "dehydrate")   # touched a day ago: the window is ignored
+        self.assertEqual(a[f.wt["busy"]][0], "keep")          # bound to a working session: still kept
+        self.assertEqual(a[f.wt["locked"]][0], "hold")
+        self.assertEqual(a[f.wt["nested"]][0], "hold")
+        self.assertEqual(a[f.hermes][0], "skip")
+        order = p["pressure"]["order"]
+        self.assertEqual(order[-1], f.wt["recent"])          # least recently active first
+        self.assertEqual(set(order), {w for w, (act, _) in a.items() if act == "dehydrate"})
+        s = {x["bg_id"]: x for x in p["sessions"]}
+        # done for 30 days (> 24 h) under a 60-day window: no longer protects its worktree under pressure
+        self.assertEqual(s["b0000001"]["action"], "close")
+        self.assertIn("pressure", s["b0000001"]["reason"])
+        self.assertEqual(s["b0000002"]["action"], "keep")    # working
+        self.assertEqual(s["b0000003"]["action"], "keep")    # blocked, but frees no disk on its own
+        self.assertEqual(p["orphans"], [])
+        normal = f.plan("--days", "60")
+        self.assertEqual(normal["totals"]["worktrees_dehydrate"], 0)
+        self.assertEqual({x["bg_id"]: x["action"] for x in normal["sessions"]}["b0000001"], "keep")
+
+    def test_pressure_apply_stops_at_target(self):
+        f = self.f
+        p = json.loads(self.pressure_run("plan", "--json", "--pressure", "--target-gb", "10").stdout)
+        first = p["pressure"]["order"][0]
+        r = self.pressure_run("apply", "--yes", "--json", "--pressure", "--target-gb", "10", fake="1,50")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        res = json.loads(r.stdout)
+        self.assertEqual([w["path"] for w in res["worktrees"]], [first])
+        self.assertTrue(res["worktrees"][0]["removed"])
+        self.assertTrue(res["pressure"]["reached"])
+        self.assertFalse(os.path.exists(first))
+        for name, path in f.wt.items():
+            if path != first:
+                self.assertTrue(os.path.isdir(path), name)
+        self.assertTrue(os.path.isdir(f.orphan))             # leftovers are not pressure candidates
+        closed = {x["bg_id"] for x in res["sessions"] if x.get("ok")}
+        bound = {x["bg_id"] for x in p["sessions"] if x.get("worktree") == first and x["action"] == "close"}
+        self.assertEqual(closed, bound)
+        self.assertTrue(os.path.isfile(os.path.join(f.state, "index.md")))
+
+    def test_pressure_already_at_target_does_nothing(self):
+        f = self.f
+        r = self.pressure_run("apply", "--yes", "--json", "--pressure", "--target-gb", "10", fake="100")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        res = json.loads(r.stdout)
+        self.assertEqual(res["worktrees"], [])
+        self.assertEqual(res["sessions"], [])
+        self.assertTrue(res["pressure"]["reached"])
+        self.assertTrue(all(os.path.isdir(p) for p in f.wt.values()))
+        self.assertFalse(os.path.exists(f.calls))
+
+    def test_pressure_flags_go_together(self):
+        self.assertEqual(self.pressure_run("plan", "--pressure").returncode, 2)
+        self.assertEqual(self.pressure_run("plan", "--target-gb", "5").returncode, 2)
+
+    def test_apply_survives_a_crashing_item_and_a_remove_timeout(self):
+        """A crash in one item is a "not done" line; prune and the index still run (in-process, patched)."""
+        import importlib.util
+        import io
+        from contextlib import redirect_stdout
+        from unittest import mock
+        f = self.f
+        spec = importlib.util.spec_from_file_location("dehydrate_under_test", SCRIPT)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        real_rid, real_git = mod.unique_rid, mod.git
+        crashed, timed_out = [], []
+
+        def flaky_rid(sd, rid):
+            if not crashed:
+                crashed.append(rid)
+                raise OSError("disk hiccup")
+            return real_rid(sd, rid)
+
+        def slow_git(cwd, *a, **k):
+            if a[:2] == ("worktree", "remove") and not timed_out:
+                timed_out.append(a[-1])
+                raise subprocess.TimeoutExpired(["git"], 3600)
+            return real_git(cwd, *a, **k)
+
+        argv = ["apply", "--yes", "--json", "--no-sessions", "--roots", f.src, "--agents-json", f.agents,
+                "--now", str(NOW), "--claude-home", f.home, "--claude-bin", f.claude, "--state-dir", f.state]
+        buf = io.StringIO()
+        with mock.patch.dict(os.environ, ENV, clear=True), mock.patch.object(mod, "unique_rid", flaky_rid), \
+                mock.patch.object(mod, "git", slow_git), redirect_stdout(buf):
+            rc = mod.main(argv)
+        res = json.loads(buf.getvalue())
+        self.assertEqual(rc, 1)
+        bad = [w for w in res["worktrees"] if not w.get("ok")]
+        good = [w for w in res["worktrees"] if w.get("ok")]
+        self.assertEqual(len(bad), 2, bad)
+        self.assertTrue(any("disk hiccup" in w["error"] for w in bad))
+        self.assertTrue(any("timed out" in w["error"] for w in bad))
+        self.assertGreaterEqual(len(good), 2)                # the loop went on after both failures
+        self.assertTrue(res["pruned"] and all(x["ok"] for x in res["pruned"]))
+        self.assertTrue(os.path.isfile(os.path.join(f.state, "index.md")))
+        self.assertTrue(os.path.isdir(timed_out[0]))         # captured, not removed, rerun-able
+
 
 if __name__ == "__main__":
     unittest.main()

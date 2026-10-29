@@ -15,5 +15,9 @@ State lives in `~/.claude/dehydrated/` (`manifest.jsonl`, `index.md`, `archive/`
 hook prints one line a day when there is something to dehydrate. Set `"auto_apply": true` in
 `~/.claude/dehydrated/config.json` to make the background refresh apply on its own.
 
+Disk pressure: `dehydrate.py apply --yes --pressure --target-gb 20` ignores the idle window and
+dehydrates worktrees one at a time, least recently active first, until 20 GB are free, with every
+hold still in force. disk-reclaim's automatic mode calls exactly this.
+
 Script: `scripts/dehydrate.py` (stdlib only, `--help` on every subcommand).
 Tests: `python3 -m unittest discover -s tests`.
