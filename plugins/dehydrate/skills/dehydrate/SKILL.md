@@ -74,8 +74,15 @@ below still applies, and so does every keep that is not about age: this session'
 process inside, a working/busy or interactive session bound to it. A session that has been
 `done` or `blocked` for more than 24 h no longer protects its worktree; it is archived and closed
 with it. Pressure mode closes no other session and leaves leftover dirs and main checkouts alone.
-The apply JSON carries `pressure: {target_gb, reached, free_checked_gb}`; reaching the target is
-exit 0, not a pause. Report how far it got and what is still held.
+The apply JSON carries `pressure: {target_gb, reached, free_checked_gb}`. Reaching the target and
+running out of candidates (`reached: false`) are both exit 0 (1 if an item was not done); neither is
+a pause. The disk floor still wins: under `disk_floor_gb` (default 2 GB) nothing runs and apply
+exits 3, because the archives are written to the same disk (snapshots and tarballs of changed and
+gitignored-real files, not node_modules and other tool output). `--only` is refused with `--pressure`.
+"Least recently active" is the newest of the worktree's dir, HEAD and reflog mtimes, its changed
+files' mtimes, and its bound sessions' activity; a session's "more than 24 h" is measured the same
+way (transcript, job state and timeline mtimes), not from when it started. Report how far it got
+and what is still held.
 
 ## What the rules protect
 

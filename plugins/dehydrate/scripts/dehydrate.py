@@ -762,7 +762,8 @@ def build_plan(args, cfg):
                 s.update(action="keep", reason="pressure: closes only with a dehydrated worktree")
         order = sorted([w for w in wts if w["action"] == "dehydrate"],
                        key=lambda w: (w.get("last_activity") or 0, -(w.get("size_kb") or 0)))
-        free, est = free_gb(), None
+        free = free_gb()
+        est = 0 if free >= args.target_gb else None  # how many candidates apply expects to take; None: not enough
         for i, w in enumerate(order, 1):
             w["pressure_rank"] = i
             free += (w.get("size_kb") or 0) / 2 ** 20
