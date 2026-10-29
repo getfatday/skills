@@ -13,6 +13,9 @@ process session and returns immediately, so a hook can start it and exit; nohup 
 because the CLI kills the hook's process group at teardown. --if-stale N makes the run a no-op
 when the ledger is younger than N seconds or another census holds <state>/census.lock, which is
 what lets a SessionEnd hook call it from every session without running it from every session.
+--classes a,b limits the run to those classes (tests, a quick re-measure). A detached run, whether it
+measured or was skipped as fresh, then starts `disk_reclaim.py --auto --execute` when automatic mode is
+on and container free space is under target-gb (see auto_classes.py); that pass takes its own lock.
 
 Design notes:
 - `df /` on macOS reports the sealed system volume's usage; only `diskutil apfs list` gives the
@@ -42,6 +45,7 @@ from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from disk_state import state_dir  # noqa: E402
+import auto_classes  # noqa: E402
 
 HOME = os.path.expanduser("~")
 NOW = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -245,7 +249,6 @@ def class_caches(rows):
         ("pkg-cache", os.path.join(HOME, "Library/Caches/node-gyp"), "rm -rf ~/Library/Caches/node-gyp", "headers re-download"),
         ("pkg-cache", os.path.join(HOME, "Library/Caches/pip"), "rm -rf ~/Library/Caches/pip", "wheels re-download"),
         ("build-cache", os.path.join(HOME, "Library/Developer/Xcode/DerivedData"), "rm -rf ~/Library/Developer/Xcode/DerivedData", "full rebuild"),
-        ("vm-bundle", os.path.join(HOME, "Library/Application Support/Claude/vm_bundles"), "quit Claude desktop, then rm -rf the bundle", "re-download ~12 GB on next Cowork use"),
         ("docker-image", os.path.join(HOME, "Library/Containers/com.docker.docker/Data/vms/0/data"), "docker system prune, then Docker Desktop Clean/Purge", "images rebuild or re-pull"),
         ("plugin-cache", os.path.join(HOME, ".claude/plugins"), "none", "the installed plugins' hooks run from here; removing it breaks every live session"),
     ]
@@ -273,10 +276,29 @@ def class_caches(rows):
                             f"rm -rf {p}", "nothing; installs already use the current store"))
 
 
+def class_desktop_vm(rows):
+    p = os.path.join(HOME, "Library/Application Support/Claude/vm_bundles")
+    b = du_bytes(p)
+    if b <= 50 * 1024 * 1024:
+        return
+    if auto_classes.desktop_running():
+        rows.append(row("claude-desktop-vm", p, b, "evidence", "report-only; the Claude desktop app is running",
+                        "none", "quit Claude desktop first; re-download ~12 GB on next Cowork use"))
+    else:
+        rows.append(row("claude-desktop-vm", p, b, "unknown",
+                        "report-only, never automatic; Claude desktop is not running; a human decides",
+                        f"rm -rf {p}", "re-download ~12 GB on next Cowork use"))
+
+
+def class_auto(rows):
+    rows.extend(auto_classes.census_rows(row, state_dir()))
+
+
 def class_claude(rows, jobs):
     for jid, j in jobs.items():
         p = os.path.join(HOME, ".claude/jobs", jid)
-        b = du_bytes(p)
+        rc, out, _ = run(["du", "-sk", "-I", "tmp", p], timeout=90)  # tmp/ is its own claude-job-scratch row
+        b = int(out.split()[0]) * 1024 if out.strip() else -1
         if b < 50 * 1024 * 1024:
             continue
         live = j["status"] not in ("done", "stopped", "")
@@ -357,6 +379,10 @@ def human(rows, totals, elapsed):
     print("by safety: " + "  ".join(f"{k}={gb(v).strip()}" for k, v in sorted(by.items())))
 
 
+CLASSES = ("simulators", "worktrees", "repos", "node-modules", "caches", "desktop-vm", "claude", "auto",
+           "git-objects", "home")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--json", action="store_true", help="print ledger records as JSON")
@@ -365,7 +391,11 @@ def main():
                     help="skip when last-census.json is younger than this, or another census holds the lock")
     ap.add_argument("--detach", action="store_true",
                     help="fork into a new process session and return at once; the census survives the caller's exit")
+    ap.add_argument("--classes", default="", help=f"comma list, limit to these classes: {','.join(CLASSES)}")
     a = ap.parse_args()
+    wanted = [c for c in a.classes.split(",") if c] or list(CLASSES)
+    if any(c not in CLASSES for c in wanted):
+        ap.error(f"--classes takes {','.join(CLASSES)}")
     d = state_dir()
     if a.detach:
         # Hooks run in the CLI's process group, which is killed at teardown; nohup does not help.
@@ -382,12 +412,12 @@ def main():
     if a.if_stale:
         last = os.path.join(d, "last-census.json")
         if os.path.exists(last) and time.time() - os.stat(last).st_mtime < a.if_stale:
-            return 0
+            return maybe_auto(d) if a.detach else 0
         lock = os.path.join(d, "census.lock")
         try:
             pid = int(open(lock).read().strip() or 0)
             os.kill(pid, 0)
-            return 0  # a live census owns the lock
+            return 0  # a live census owns the lock (and starts the auto pass when it finishes)
         except (FileNotFoundError, ValueError, ProcessLookupError, PermissionError):
             pass
         with open(lock, "w") as f:
@@ -396,14 +426,16 @@ def main():
     rows = []
     totals = container_totals()
     jobs = live_jobs()
-    for fn in (lambda: class_simulators(rows), lambda: class_worktrees(rows, jobs),
-               lambda: class_repos(rows), lambda: class_node_modules(rows, jobs),
-               lambda: class_caches(rows), lambda: class_claude(rows, jobs),
-               lambda: class_git_objects(rows), lambda: class_home(rows)):
+    fns = {"simulators": lambda: class_simulators(rows), "worktrees": lambda: class_worktrees(rows, jobs),
+           "repos": lambda: class_repos(rows), "node-modules": lambda: class_node_modules(rows, jobs),
+           "caches": lambda: class_caches(rows), "desktop-vm": lambda: class_desktop_vm(rows),
+           "claude": lambda: class_claude(rows, jobs), "auto": lambda: class_auto(rows),
+           "git-objects": lambda: class_git_objects(rows), "home": lambda: class_home(rows)}
+    for name in wanted:
         try:
-            fn()
+            fns[name]()
         except Exception as e:  # a broken class never kills the census
-            rows.append(row("census-error", fn.__name__, -1, "unknown", f"{e.__class__.__name__}: {e}"))
+            rows.append(row("census-error", name, -1, "unknown", f"{e.__class__.__name__}: {e}"))
     elapsed = time.time() - t0
     size, in_use, free, df_used, df_avail = totals
     summary = {
@@ -431,6 +463,19 @@ def main():
         print(json.dumps({"summary": summary, "rows": rows}, indent=1))
     elif not a.ledger:
         human(rows, totals, elapsed)
+    return maybe_auto(d) if a.detach else 0
+
+
+def maybe_auto(d):
+    """Detached runs only: start the automatic pass when it is on and free space is under target-gb.
+    The cheap check is here so a SessionStart that finds plenty of space costs one diskutil call."""
+    try:
+        cfg = auto_classes.auto_config(d)
+        if cfg["auto"] and auto_classes.free_bytes(consume=False) < cfg["target_gb"] * 1e9:
+            subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "disk_reclaim.py"),
+                            "--auto", "--execute"], capture_output=True, timeout=8 * 3600)
+    except Exception:
+        pass
     return 0
 
 

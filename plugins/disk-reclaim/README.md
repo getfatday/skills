@@ -4,8 +4,9 @@ Recover disk space on a macOS developer laptop without losing anyone's work.
 
 Nothing is deleted on a label. Every removal goes through `scripts/disk_reclaim.py`, which refuses any
 path that has no recorded decision in `~/.claude/disk-reclaim/ledger.jsonl`: an owner session's SAFE, a
-human's choice, or `auto:cache` for ownerless caches only. `node_modules`, worktrees, job dirs, and
-simulators always need an owner or a human, however regenerable they look.
+human's choice, `auto:cache` for ownerless caches, or `auto:<class>` for the few Claude waste classes
+below, and only after that class's live checks pass again at the moment of acting. `node_modules`,
+worktrees, simulators, and whole job dirs always need an owner or a human, however regenerable they look.
 
 The disk on a machine that runs Xcode simulators, node and pnpm, Docker, many git worktrees, and
 several Claude Code sessions at once fills up in ways `du ~` does not show. This plugin gives Claude
@@ -28,8 +29,30 @@ Two hooks come with it, both exit 0 on every path:
   `snooze` is fresh. About 0.2 s.
 - **Detached census**: started detached and niced from SessionStart and again at SessionEnd (the lock makes the second a no-op), refreshes `~/.claude/disk-reclaim/last-census.json` when it is
   over six hours old. Never delays a session; the first session after six hours pays nothing, the census runs behind it.
+  Afterwards (and even when the census was fresh) it starts the automatic pass if free space is under `target-gb`.
 
 Nothing runs on Stop.
+
+## Automatic reclaim (on by default)
+
+When the detached census sees container free space under `target-gb` (default 15), it runs
+`disk_reclaim.py --auto --execute` on its own: one lock, niced, never inside a session's turn. It works
+in a fixed order until free space reaches `target-gb + headroom-gb` (default 5) and then stops:
+
+1. `hook-spool-rotation`: append-only spool files over 1 GB (default list:
+   `~/.claude/observatory/spool.jsonl`) are renamed and gzipped in place, with a line in
+   `README-rotation.txt` next to them. Nothing is deleted.
+2. `claude-cli-versions`: old Claude Code builds in `~/.local/share/claude/versions/` that are not
+   the target of `~/.local/bin/claude`, not newer than it, and not used by any running process.
+3. `claude-job-scratch`: `~/.claude/jobs/<id>/tmp` (largest first) of sessions that are not
+   working or busy, with nothing modified in 24 hours and nothing open. Only `tmp/` goes.
+4. `stale-worktrees`: delegated to the dehydrate plugin (0.1.3 or later), `apply --pressure`,
+   which snapshots each worktree before removing it and keeps every one of its holds.
+
+It never touches the Claude desktop VM bundle (`claude-desktop-vm`, report-only) or anything else.
+Every action is a ledger decision `auto:<class>` plus its outcome, and a line in `free-log.jsonl`;
+the next session's SessionStart prints one `DISK_RECLAIM_AUTO:` line saying what it did.
+Turn it off with `echo false > ~/.claude/disk-reclaim/auto`.
 
 ## Unattended
 
@@ -51,7 +74,8 @@ State and tuning files live in `~/.claude/disk-reclaim/`; see
 
 ## What it will not do
 
-Delete anything without a ledger decision for that exact path. Delete anything classified as evidence or unknown on its own. Offer your Downloads, Documents,
+Delete anything without a ledger decision for that exact path. Delete anything classified as evidence or
+unknown on its own; automatic mode acts only on the four classes above, re-checking each right before it acts. Offer your Downloads, Documents,
 app data, applications, or any worktree with unpushed work. Run the census inline in a turn you
 are waiting on. Message a busy session, or message any session twice.
 

@@ -32,6 +32,14 @@ had exited. So the hook starts the census with `--detach`, which double-forks in
 | `asks.jsonl` | `disk_asks.py` | one `sent` line per ask (owner, paths, deadline, msg id, asker) and one `reply` line per verdict line received; `disk_asks.py status` answers \"has it asked anyone\" in one command, `pending` lists timeouts |
 | `decision-card.md` | orchestrator firing or the skill | the human's single surface: every undecided row grouped by owner class with its typed state and the executor's dry-run outcome |
 | `orchestrator.lock` | `orchestrate.sh` firing | pid, executor, heartbeat_unix, ttl_s 1800; a second firing refuses while it is fresh |
+| `auto` | you | `true` (default when absent) or `false`; `echo false > ~/.claude/disk-reclaim/auto` turns automatic reclaim off |
+| `target-gb` | you | container free GB under which the automatic pass starts; default 15 |
+| `headroom-gb` | you | the pass stops at `target-gb` plus this; default 5 |
+| `spool-files` | you | spool files to rotate, one path per line; default `~/.claude/observatory/spool.jsonl` |
+| `spool-threshold-gb` | you | rotate a spool once it is this big; default 1 |
+| `auto.lock` | `disk_reclaim.py --auto` | flock; a second pass exits at once |
+| `free-log.jsonl` | `disk_reclaim.py --auto` | one `auto-run` line at the start and end of each pass and one `auto-reclaim` line per action: class, path, outcome, freed_bytes, free_mb |
+| `last-auto-reported` | nudge | ts of the newest auto action already reported in a `DISK_RECLAIM_AUTO:` line |
 | `ledger.jsonl` | `disk_reclaim_record.py`, `disk_reclaim.py` | append-only decisions and removals: path, bytes, command, decided_by (human email, `owner:<session>` with verdict, or `auto:cache`), keep_until, and for removals reclaimed_bytes and removed_by (the acting session). `disk_reclaim.py` reads this and refuses any path without an allowing decision |
 
 One directory per user, not per repo. The disk is machine-wide; a per-project ledger would fork
@@ -46,6 +54,15 @@ is done. Regenerable now: 6.2 GB ~/Library/pnpm/store/v3; 2.5 GB ~/src/app/node_
 2.3 GB ~/Library/Caches/ms-playwright. Snooze 24h: touch ~/.claude/disk-reclaim/snooze
 ```
 
+When automatic reclaim acted since the last report, a second line comes first, once, whatever the
+threshold, cooldown or snooze say:
+
+```
+DISK_RECLAIM_AUTO: since 2026-10-29T14:02:11Z auto-reclaim freed 9.8 GB in 4 action(s)
+(claude-cli-versions 1, claude-job-scratch 2, hook-spool-rotation 1); now 21.3 GiB free.
+Ledger: ~/.claude/disk-reclaim/ledger.jsonl. Turn off: echo false > ~/.claude/disk-reclaim/auto
+```
+
 It appears in the session's context at start. "Finish the current turn first" is the point: the
 hook surfaces the condition, the model chooses the moment.
 
@@ -55,6 +72,9 @@ hook surfaces the condition, the model chooses the moment.
   runtime download.
 - Lower `cooldown-hours` if you want every fresh session to hear it; raise it if you run many.
 - `touch ~/.claude/disk-reclaim/snooze` after a deliberate "not today"; it expires on its own.
+- Automatic reclaim: raise `target-gb` to keep more space free, lower `headroom-gb` to stop sooner,
+  `echo false > auto` to turn it off. `disk_reclaim.py --auto` (no `--execute`) shows what the next
+  pass would do without writing anything.
 - If `census-log.jsonl` shows `elapsed_s` climbing toward several hundred seconds, the machine has
   many worktrees; that is fine for a detached run.
 

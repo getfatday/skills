@@ -8,7 +8,10 @@ Reads  <state>/threshold-gb     integer GB; default 30
        <state>/cooldown-hours   hours between nudges across ALL sessions; default 4
        <state>/snooze           regular file; silent while its mtime is under 24 h old
        <state>/last-census.json optional; names the top three regenerable items
+       <state>/free-log.jsonl   auto-reclaim actions; each batch is reported once in a DISK_RECLAIM_AUTO line,
+                                whatever the threshold, cooldown or snooze say (it is a report of what changed)
 Writes <state>/last-nudged      stamp, so twelve sessions starting in an hour produce one line
+       <state>/last-auto-reported  ts of the newest auto action already reported
        <state>/hook-log.jsonl   one line per firing
 
 Free space is os.statvfs("/").f_bavail: the container-wide free figure. (df's USED column
@@ -32,8 +35,46 @@ def read_int(path, default):
         return default
 
 
+def auto_report(d):
+    """One line about auto-reclaim actions since the last report, or ""."""
+    stamp = os.path.join(d, "last-auto-reported")
+    try:
+        since = open(stamp).read().strip()
+    except OSError:
+        since = ""
+    acts = []
+    try:
+        for line in open(os.path.join(d, "free-log.jsonl")):
+            if '"auto-reclaim"' not in line:
+                continue
+            try:
+                r = json.loads(line)
+            except ValueError:
+                continue
+            if r.get("event") == "auto-reclaim" and r.get("ts", "") > since:
+                acts.append(r)
+    except OSError:
+        return ""
+    if not acts:
+        return ""
+    done = [r for r in acts if r.get("outcome") == "done"]
+    by = {}
+    for r in done:
+        by[r.get("class", "?")] = by.get(r.get("class", "?"), 0) + 1
+    freed = sum(r.get("freed_bytes") or 0 for r in done)
+    with open(stamp, "w") as f:
+        f.write(max(r["ts"] for r in acts))
+    return (f"DISK_RECLAIM_AUTO: since {since or 'install'} auto-reclaim freed {freed/1e9:.1f} GB in {len(done)} action(s)"
+            + (f" ({', '.join(f'{k} {v}' for k, v in sorted(by.items()))})" if by else "")
+            + (f", {len(acts) - len(done)} failed" if len(acts) > len(done) else "")
+            + f"; now {acts[-1].get('free_mb', 0) / 1024:.1f} GiB free. Ledger: {d}/ledger.jsonl. Turn off: echo false > {d}/auto")
+
+
 def main():
     d = state_dir()
+    line = auto_report(d)
+    if line:
+        print(line)
     threshold = read_int(os.path.join(d, "threshold-gb"), 30)
     cooldown_s = read_int(os.path.join(d, "cooldown-hours"), 4) * 3600
     st = os.statvfs("/")
