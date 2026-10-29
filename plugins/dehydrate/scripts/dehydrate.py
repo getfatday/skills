@@ -4,6 +4,8 @@
 Subcommands
   plan       read-only census + decision (default). Prints what apply would do.
   apply      snapshot, verify, archive, then remove stale worktrees and close stale sessions.
+             plan/apply --pressure --target-gb N: disk-pressure mode (idle window ignored for worktrees,
+             least recently active first, one at a time, stop once free disk >= N; every hold applies).
   list       search the manifest (what was dehydrated, when, what it was about).
   show       print one manifest record.
   rehydrate  recreate a dehydrated worktree (branch, dirty state, ignored files) and its sessions.
@@ -46,6 +48,7 @@ import time
 SCHEMA = 1
 HERE = os.path.dirname(os.path.abspath(__file__))
 ACTIVE_STATES = {"working", "busy", "running"}
+PRESSURE_RELEASE_STATES = {"done", "blocked"}
 
 DEFAULTS = {
     "days": 7,
@@ -140,6 +143,20 @@ def sha256(path):
 def free_gb(path="/"):
     st = os.statvfs(path)
     return st.f_bavail * st.f_frsize / (1024 ** 3)
+
+
+_FAKE_FREE = []
+
+
+def pressure_free_gb():
+    """Free GB for the --pressure stop check, read once per item. DEHYDRATE_FAKE_FREE_GB="5,20" (tests)
+    returns 5 for the first check, 20 for the second, then repeats the last value."""
+    fake = os.environ.get("DEHYDRATE_FAKE_FREE_GB")
+    if not fake:
+        return free_gb()
+    if not _FAKE_FREE:
+        _FAKE_FREE.extend(float(x) for x in fake.split(","))
+    return _FAKE_FREE.pop(0) if len(_FAKE_FREE) > 1 else _FAKE_FREE[0]
 
 
 def du_kb(path):
@@ -303,6 +320,9 @@ def session_rows(args, cfg, tidx, now):
             row.update(action="keep", reason=f"{row['kind'] or 'unknown'} session (close it in its terminal)")
         elif state in ACTIVE_STATES:
             row.update(action="keep", reason=f"state {state}")
+        elif getattr(args, "pressure", False) and state in PRESSURE_RELEASE_STATES and now - last >= 86400:
+            # under disk pressure a finished or stuck session stops protecting its worktree after a day
+            row.update(action="close", reason=f"pressure: state {state}, idle {row['idle_days']}d (> 24h)")
         elif now - last < cfg["days"] * 86400:
             row.update(action="keep", reason=f"active {row['idle_days']}d ago (< {cfg['days']}d)")
         else:
@@ -554,22 +574,23 @@ def read_head_branch(common_dir):
     return h[len("ref: refs/heads/"):] if h.startswith("ref: refs/heads/") else None
 
 
-def worktree_rows(cfg, sessions, tidx, now, only=None):
+def worktree_rows(cfg, sessions, tidx, now, only=None, pressure=False):
     from concurrent.futures import ThreadPoolExecutor
     repos = find_repos(cfg)
     cwds = process_cwds()
     me_cwd = os.path.realpath(os.getcwd())
     keep_sessions = [s for s in sessions if s["action"] == "keep" and s.get("rcwd")]
     with ThreadPoolExecutor(max_workers=cfg.get("workers", 8)) as ex:
-        parts = list(ex.map(lambda r: repo_rows(r, cfg, sessions, keep_sessions, tidx, now, only, cwds, me_cwd), repos))
+        parts = list(ex.map(lambda r: repo_rows(r, cfg, sessions, keep_sessions, tidx, now, only, cwds, me_cwd, pressure), repos))
     rows = [x for p in parts for x in p[0]]
     mains = [x for p in parts for x in p[1]]
     orphans = [x for p in parts for x in p[2]]
     return rows, mains, orphans
 
 
-def repo_rows(repo, cfg, sessions, keep_sessions, tidx, now, only, cwds, me_cwd):
+def repo_rows(repo, cfg, sessions, keep_sessions, tidx, now, only, cwds, me_cwd, pressure=False):
     rows, mains, orphans = [], [], []
+    wt_days = 0 if pressure else cfg["days"]  # --pressure ignores the idle window for worktrees only
     if True:
         has_linked = os.path.isdir(os.path.join(repo["common_dir"], "worktrees"))
         wdir = os.path.join(repo["path"], ".claude", "worktrees")
@@ -614,7 +635,7 @@ def repo_rows(repo, cfg, sessions, keep_sessions, tidx, now, only, cwds, me_cwd)
                    [s["last_activity"] for s in bound_bg]
             pending.append((w, row, path, acts))
         # only stale candidates pay for a full look, in parallel
-        stale = [x for x in pending if now - max(x[3]) >= cfg["days"] * 86400]
+        stale = [x for x in pending if now - max(x[3]) >= wt_days * 86400]
 
         def facts_or_none(w):
             try:
@@ -637,7 +658,7 @@ def repo_rows(repo, cfg, sessions, keep_sessions, tidx, now, only, cwds, me_cwd)
                 row.update(action="keep", reason="this session's cwd")
             elif kept:
                 row.update(action="keep", reason=f"bound to kept session {kept[0]['bg_id'] or kept[0]['session_id'][:8]}")
-            elif now - row["last_activity"] < cfg["days"] * 86400:
+            elif now - row["last_activity"] < wt_days * 86400:
                 row.update(action="keep", reason=f"active {row['idle_days']}d ago (< {cfg['days']}d)")
             elif not facts:
                 row.update(action="hold", reason="could not read worktree state")
@@ -699,6 +720,7 @@ def repo_rows(repo, cfg, sessions, keep_sessions, tidx, now, only, cwds, me_cwd)
 
 def build_plan(args, cfg):
     now = args.now or time.time()
+    pressure = getattr(args, "pressure", False)
     ch = claude_home(args)
     tidx = transcript_index(ch)
     sessions = session_rows(args, cfg, tidx, now) if not args.no_sessions else []
@@ -707,7 +729,7 @@ def build_plan(args, cfg):
     if args.no_worktrees and not cfg["snapshot_main"]:
         wts, mains, orphans = [], [], []
     else:
-        wts, mains, orphans = worktree_rows(cfg, sessions, tidx, now, args.only)
+        wts, mains, orphans = worktree_rows(cfg, sessions, tidx, now, args.only, pressure)
         if args.no_worktrees:
             wts, orphans = [], []
     if args.only:
@@ -729,9 +751,27 @@ def build_plan(args, cfg):
             o["size_kb"] = du_kb(o["path"])
             if o["size_kb"] > cfg["orphan_cap_mb"] * 1024:
                 o.update(action="hold", reason=f"{o['size_kb'] // 1024} MB over orphan cap")
-    if args.no_main or args.only:
+    if args.no_main or args.only or pressure:
         mains = []
+    press = None
+    if pressure:
+        # least recently active first, then largest; only worktrees (and their sessions) free disk here
+        orphans = []
+        for s in sessions:
+            if s["action"] == "close" and s.get("worktree_action") != "dehydrate":
+                s.update(action="keep", reason="pressure: closes only with a dehydrated worktree")
+        order = sorted([w for w in wts if w["action"] == "dehydrate"],
+                       key=lambda w: (w.get("last_activity") or 0, -(w.get("size_kb") or 0)))
+        free, est = free_gb(), None
+        for i, w in enumerate(order, 1):
+            w["pressure_rank"] = i
+            free += (w.get("size_kb") or 0) / 2 ** 20
+            if est is None and free >= args.target_gb:
+                est = i
+        press = {"target_gb": args.target_gb, "free_gb": round(free_gb(), 2),
+                 "order": [w["path"] for w in order], "estimated_stop_after": est}
     return {"schema": SCHEMA, "now": now, "now_iso": iso(now), "days": cfg["days"], "host": socket.gethostname(),
+            "pressure": press,
             "sessions": sessions, "worktrees": wts, "mains": mains, "orphans": orphans,
             "totals": {
                 "sessions_close": sum(s["action"] == "close" for s in sessions),
@@ -760,9 +800,17 @@ def render_plan(plan, applied=False):
          f"prune {t['worktrees_prune']}, excluded {t['worktrees_excluded']} (other systems' trees, never touched)",
          f"  leftover dirs: archive {t['orphans_archive']}   main checkouts: snapshot {t['mains_snapshot']}",
          f"  frees about {t['reclaim_kb'] / 2**20:.2f} GB", ""]
+    pr = plan.get("pressure")
+    if pr:
+        L[0] = f"dehydrate plan @ {plan['now_iso']} (PRESSURE: idle window ignored, stop at {pr['target_gb']} GB free)"
+        est = pr["estimated_stop_after"]
+        L.insert(-1, f"  free now {pr['free_gb']} GB; worktrees go least recently active first, one at a time; "
+                     + (f"target reached after about {est}" if est else "all candidates together may not reach the target"))
     for title, rows, acts in (("Worktrees", plan["worktrees"], ("dehydrate", "hold", "prune")),
                               ("Leftover dirs", plan["orphans"], ("archive", "hold"))):
         sel = [r for r in rows if r["action"] in acts]
+        if pr:
+            sel.sort(key=lambda r: r.get("pressure_rank") or 10 ** 6)
         if sel:
             L.append(f"{title}:")
             for r in sel:
@@ -1099,11 +1147,14 @@ def close_session(args, s):
 
 def apply_plan(args, cfg, plan, sd):
     res = {"worktrees": [], "sessions": [], "mains": [], "orphans": [], "pruned": [], "paused": None,
-           "df_before_gb": round(free_gb(), 2)}
+           "df_before_gb": round(free_gb(), 2), "pressure": None}
     now = plan["now"]
     by_sid = {s["session_id"]: s for s in plan["sessions"] if s["session_id"]}
     tidx = transcript_index(claude_home(args))
     host = socket.gethostname()
+    press = plan.get("pressure")
+    if press:
+        res["pressure"] = {"target_gb": press["target_gb"], "reached": False, "free_checked_gb": None}
 
     def floor_ok():
         if free_gb() < cfg["disk_floor_gb"]:
@@ -1111,10 +1162,23 @@ def apply_plan(args, cfg, plan, sd):
             return False
         return True
 
-    # 1. worktrees, smallest first so the floor check frees space early
-    for w in sorted([w for w in plan["worktrees"] if w["action"] == "dehydrate"], key=lambda w: w.get("size_kb", 0)):
-        if not floor_ok():
-            break
+    def target_reached():
+        """--pressure only: one free-disk read per item; at or over the target the run stops (not a pause)."""
+        if not press:
+            return False
+        f = pressure_free_gb()
+        res["pressure"]["free_checked_gb"] = round(f, 2)
+        res["pressure"]["reached"] = f >= press["target_gb"]
+        return res["pressure"]["reached"]
+
+    def guarded(kind, item, fn):
+        """One item's crash is a "not done" line; the loop goes on and prune/index still run."""
+        try:
+            fn()
+        except Exception as e:
+            res[kind].append(dict(item, ok=False, error=f"{e.__class__.__name__}: {str(e)[:300]}"))
+
+    def do_worktree(w):
         rid = unique_rid(sd, rid_for(os.path.basename(w["path"]), f"{w['path']}\0{w['head']}", now))
         archive = os.path.join(sd, "archive", rid)
         os.makedirs(archive, exist_ok=True)
@@ -1149,10 +1213,16 @@ def apply_plan(args, cfg, plan, sd):
         except Exception as e:
             out.update(ok=False, error=str(e)[:400])
             shutil.rmtree(archive, ignore_errors=True)  # nothing was removed and nothing points here
-            git(w["repo"], "update-ref", "-d", f"refs/dehydrated/{rid}")
+            with contextlib.suppress(Exception):
+                git(w["repo"], "update-ref", "-d", f"refs/dehydrated/{rid}")
             res["worktrees"].append(out)
-            continue
-        r = git(w["repo"], "worktree", "remove", "--force", w["path"])
+            return
+        try:  # a 300k-file tree can take minutes on a busy disk
+            r = git(w["repo"], "worktree", "remove", "--force", w["path"], timeout=3600)
+        except subprocess.TimeoutExpired:
+            r = subprocess.CompletedProcess([], 1, "", "git worktree remove timed out after 3600s; rerun apply")
+        except Exception as e:
+            r = subprocess.CompletedProcess([], 1, "", f"git worktree remove failed: {e.__class__.__name__}: {e}")
         if r.returncode != 0:
             out.update(ok=False, removed=False, error=f"captured as {rid} but not removed: {r.stderr.strip()[:300]}")
         else:
@@ -1161,18 +1231,11 @@ def apply_plan(args, cfg, plan, sd):
                 append_manifest(sd, {"event": "removed", "id": rid, "at": iso(time.time())})
         res["worktrees"].append(out)
 
-    removed_paths = {o["path"] for o in res["worktrees"] if o.get("removed")}
-    wrow_by_path = {w["path"]: w for w in plan["worktrees"]}
-
-    # 2. sessions. A session whose worktree is kept or held stays bound to it; closing is fine
-    # (the conversation survives), but never let `claude rm` take a worktree we did not capture.
-    for s in [s for s in plan["sessions"] if s["action"] == "close"]:
-        if res["paused"] or not floor_ok():
-            break
+    def do_session(s, removed_paths, wrow_by_path):
         wt = s.get("worktree")
         if wt and wt not in removed_paths and s.get("worktree_action") == "dehydrate":
             res["sessions"].append({"bg_id": s["bg_id"], "ok": False, "error": "its worktree was not captured; left open"})
-            continue
+            return
         rid = unique_rid(sd, rid_for("s-" + (s.get("name") or s["bg_id"]), s["session_id"], now))
         archive = os.path.join(sd, "archive", rid)
         os.makedirs(archive, exist_ok=True)
@@ -1193,8 +1256,11 @@ def apply_plan(args, cfg, plan, sd):
         except Exception as e:
             shutil.rmtree(archive, ignore_errors=True)
             res["sessions"].append({"bg_id": s["bg_id"], "ok": False, "error": str(e)[:400]})
-            continue
-        closed = close_session(args, s)
+            return
+        try:
+            closed = close_session(args, s)
+        except Exception as e:
+            closed = {"closed": False, "steps": [{"cmd": "stop/rm", "rc": -1, "out": f"{e.__class__.__name__}: {e}"}]}
         if closed["closed"]:
             with contextlib.suppress(Exception):
                 append_manifest(sd, {"event": "removed", "id": rid, "at": iso(time.time()), "close": closed})
@@ -1205,10 +1271,7 @@ def apply_plan(args, cfg, plan, sd):
                                              f"Left open; its transcript is archived as {rid}. Check it, then close it "
                                              f"yourself with `claude rm {s['bg_id']}` if you are done with it."})
 
-    # 3. unregistered leftover dirs
-    for o in [o for o in plan["orphans"] if o["action"] == "archive"]:
-        if res["paused"] or not floor_ok():
-            break
+    def do_orphan(o):
         rid = unique_rid(sd, rid_for(os.path.basename(o["path"]), o["path"], now))
         archive = os.path.join(sd, "archive", rid)
         os.makedirs(archive, exist_ok=True)
@@ -1222,7 +1285,7 @@ def apply_plan(args, cfg, plan, sd):
         except Exception as e:
             shutil.rmtree(archive, ignore_errors=True)
             res["orphans"].append({"path": o["path"], "ok": False, "error": str(e)[:300]})
-            continue
+            return
         try:
             shutil.rmtree(o["path"])
             with contextlib.suppress(Exception):
@@ -1231,14 +1294,7 @@ def apply_plan(args, cfg, plan, sd):
         except Exception as e:
             res["orphans"].append({"id": rid, "path": o["path"], "ok": False, "error": f"archived as {rid} but not removed: {e}"})
 
-    # 4. main checkouts: capture only, never touch the checkout
-    last_tree = {}
-    for r in read_manifest(sd):
-        if r.get("event") == "dehydrated" and r.get("kind") == "main-snapshot":
-            last_tree[r["repo"]["path"]] = r["snapshot"]["tree"]
-    for m in [m for m in plan["mains"] if m["action"] == "snapshot"]:
-        if res["paused"] or not floor_ok():
-            break
+    def do_main(m, last_tree):
         try:
             mp = os.path.realpath(m["path"])
             skip = sorted(os.path.relpath(os.path.realpath(w["path"]), mp) + "/" for w in list_worktrees(m["repo"])[1:]
@@ -1247,17 +1303,17 @@ def apply_plan(args, cfg, plan, sd):
             tree = snapshot_tree(m["path"], skip)
         except Exception as e:  # one unreadable checkout must not stop the rest
             res["mains"].append({"path": m["path"], "ok": False, "error": f"not captured: {str(e)[:300]}"})
-            continue
+            return
         why = (f["submodule_dirty"] and f"dirty submodule {f['submodule_dirty'][0]}") or \
               (f["nested_repos"] and f"nested git repo {f['nested_repos'][0]}") or \
               (f["untracked_big"] and f"untracked file over cap: {f['untracked_big'][0]}") or \
               (f["untracked_bytes"] > cfg["untracked_cap_mb"] * 2 ** 20 and f"untracked total {f['untracked_bytes'] // 2**20} MB over cap")
         if why:
             res["mains"].append({"path": m["path"], "ok": False, "error": f"not captured: {why}"})
-            continue
+            return
         if tree and last_tree.get(m["repo"]) == tree:
             res["mains"].append({"path": m["path"], "ok": True, "skipped": "unchanged since last snapshot"})
-            continue
+            return
         rid = unique_rid(sd, rid_for(os.path.basename(m["repo"]) + "-main", f"{m['path']}\0{tree}", now))
         archive = os.path.join(sd, "archive", rid)
         os.makedirs(archive, exist_ok=True)
@@ -1279,19 +1335,76 @@ def apply_plan(args, cfg, plan, sd):
             shutil.rmtree(archive, ignore_errors=True)
             res["mains"].append({"path": m["path"], "ok": False, "error": str(e)[:300]})
 
-    # 5. prune records of worktrees whose dirs are gone
-    for repo in sorted({w["repo"] for w in plan["worktrees"] if w["action"] in ("prune", "dehydrate")}):
-        r = git(repo, "worktree", "prune")
-        res["pruned"].append({"repo": repo, "ok": r.returncode == 0})
-    res["df_after_gb"] = round(free_gb(), 2)
-    write_index(sd)
+    try:
+        # 1. worktrees: smallest first so the floor check frees space early; under --pressure the plan's
+        # order (least recently active, then largest) and a stop as soon as free disk reaches the target
+        wl = [w for w in plan["worktrees"] if w["action"] == "dehydrate"]
+        if press:
+            rank = {p: i for i, p in enumerate(press["order"])}
+            wl.sort(key=lambda w: rank.get(w["path"], len(rank)))
+        else:
+            wl.sort(key=lambda w: w.get("size_kb", 0))
+        for w in wl:
+            if target_reached() or not floor_ok():
+                break
+            guarded("worktrees", {"path": w["path"]}, lambda: do_worktree(w))
+        else:
+            target_reached()
+
+        removed_paths = {o["path"] for o in res["worktrees"] if o.get("removed")}
+        wrow_by_path = {w["path"]: w for w in plan["worktrees"]}
+
+        # 2. sessions. A session whose worktree is kept or held stays bound to it; closing is fine
+        # (the conversation survives), but never let `claude rm` take a worktree we did not capture.
+        # Under --pressure only the sessions of worktrees actually removed close, with their worktree.
+        sl = [s for s in plan["sessions"] if s["action"] == "close"]
+        if press:
+            sl = [s for s in sl if s.get("worktree") in removed_paths]
+        for s in sl:
+            if res["paused"] or not floor_ok():
+                break
+            guarded("sessions", {"bg_id": s["bg_id"], "name": s.get("name")},
+                    lambda: do_session(s, removed_paths, wrow_by_path))
+
+        # 3. unregistered leftover dirs
+        for o in [o for o in plan["orphans"] if o["action"] == "archive"]:
+            if res["paused"] or not floor_ok():
+                break
+            guarded("orphans", {"path": o["path"]}, lambda: do_orphan(o))
+
+        # 4. main checkouts: capture only, never touch the checkout
+        last_tree = {}
+        for r in read_manifest(sd):
+            if r.get("event") == "dehydrated" and r.get("kind") == "main-snapshot":
+                last_tree[r["repo"]["path"]] = r["snapshot"]["tree"]
+        for m in [m for m in plan["mains"] if m["action"] == "snapshot"]:
+            if res["paused"] or not floor_ok():
+                break
+            guarded("mains", {"path": m["path"]}, lambda: do_main(m, last_tree))
+    finally:
+        # 5. always: prune records of worktrees whose dirs are gone, and rewrite the index
+        for repo in sorted({w["repo"] for w in plan["worktrees"] if w["action"] in ("prune", "dehydrate")}):
+            try:
+                r = git(repo, "worktree", "prune")
+                res["pruned"].append({"repo": repo, "ok": r.returncode == 0})
+            except Exception as e:
+                res["pruned"].append({"repo": repo, "ok": False, "error": str(e)[:200]})
+        with contextlib.suppress(Exception):
+            res["df_after_gb"] = round(free_gb(), 2)
+        with contextlib.suppress(Exception):
+            write_index(sd)
     return res
 
 
 def render_apply(res):
-    L = [f"dehydrate apply: free disk {res['df_before_gb']} GB -> {res['df_after_gb']} GB"]
+    L = [f"dehydrate apply: free disk {res['df_before_gb']} GB -> {res.get('df_after_gb')} GB"]
     if res["paused"]:
         L.append(f"PAUSED: {res['paused']}")
+    pr = res.get("pressure")
+    if pr:
+        L.append(f"PRESSURE: target {pr['target_gb']} GB free "
+                 + ("reached; stopped there" if pr["reached"] else "not reached; no candidates left")
+                 + f" (last check {pr['free_checked_gb']} GB)")
     for k in ("worktrees", "orphans", "sessions", "mains"):
         ok = [x for x in res[k] if x.get("ok")]
         bad = [x for x in res[k] if not x.get("ok")]
@@ -1603,6 +1716,11 @@ def main(argv=None):
             p.add_argument("--if-stale", action="store_true")
         if name == "apply":
             p.add_argument("--yes", action="store_true", help="required: apply acts without a prompt")
+        if name in ("plan", "apply"):
+            p.add_argument("--pressure", action="store_true",
+                           help="disk-pressure mode: ignore --days for worktrees, go least recently active first, "
+                                "stop once free disk reaches --target-gb (every hold still applies)")
+            p.add_argument("--target-gb", type=float, help="with --pressure: stop when free disk is at least this")
     p = sub.add_parser("list")
     p.add_argument("words", nargs="*")
     p.add_argument("--kind", choices=["worktree", "session", "orphan", "main-snapshot"])
@@ -1651,6 +1769,10 @@ def main(argv=None):
         cfg["snapshot_main"] = True
     if args.cmd == "refresh":
         return cmd_refresh(args, cfg)
+    if getattr(args, "pressure", False) != (getattr(args, "target_gb", None) is not None):
+        ap.error("--pressure and --target-gb go together")
+    if getattr(args, "pressure", False) and (args.only or args.target_gb <= 0):
+        ap.error("--pressure takes a positive --target-gb and no --only")
     plan = build_plan(args, cfg)
     if args.only and not any(plan[k] for k in ("sessions", "worktrees", "orphans")):
         print(f"--only {' '.join(args.only)} matched no worktree path, basename or branch and no session id")

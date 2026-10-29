@@ -16,7 +16,7 @@ Everything lives at the user level, one place for every repo: `$DEHYDRATE_HOME` 
 | `archive/<id>/transcripts/<session>.jsonl.gz` | Transcript copies, checksummed against the original |
 | `archive/<id>/job-<bg-id>.tar.gz` | The background job dir (state, timeline, tmp/ up to 200 MB) |
 | `archive/<id>/tree.tar.gz` | For an unregistered leftover dir: its files minus build output |
-| `last-plan.json`, `last-apply.json` | Latest plan (what the nudge reads) and apply result |
+| `last-plan.json`, `last-apply.json` | Latest plan (what the nudge reads) and apply result. Under `--pressure` both carry a `pressure` object: the plan's `{target_gb, free_gb, order, estimated_stop_after}` (worktree paths in the order apply takes them) and the apply's `{target_gb, reached, free_checked_gb}` |
 | `config.json` | Optional overrides, see the skill |
 
 ## A `dehydrated` record

@@ -63,6 +63,20 @@ re-plan.
    Point the user at `~/.claude/dehydrated/index.md` (the table of everything ever dehydrated)
    and tell them `/rehydrate <words>` brings any item back.
 
+## Disk pressure
+
+When the user needs space now ("free 20 GB", "the disk is full, clear old worktrees"), or the
+disk-reclaim plugin delegates to this skill, use `D plan --pressure --target-gb N` and then
+`D apply --yes --pressure --target-gb N`. Pressure mode ignores `--days` for worktrees (a
+worktree touched an hour ago is a candidate), orders candidates least recently active first and
+then largest, and dehydrates one at a time, stopping as soon as free disk reaches N. Every hold
+below still applies, and so does every keep that is not about age: this session's cwd, a live
+process inside, a working/busy or interactive session bound to it. A session that has been
+`done` or `blocked` for more than 24 h no longer protects its worktree; it is archived and closed
+with it. Pressure mode closes no other session and leaves leftover dirs and main checkouts alone.
+The apply JSON carries `pressure: {target_gb, reached, free_checked_gb}`; reaching the target is
+exit 0, not a pause. Report how far it got and what is still held.
+
 ## What the rules protect
 
 - **Active means kept**: a session or worktree touched in the last `--days` days, a session in
