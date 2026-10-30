@@ -37,7 +37,7 @@ next listing loads.
 - `id`: `<YYYYMMDD>-<slug>-<6 hex>`, dated in UTC by the plan's clock, the same clock as `at`
   (under `--now` / `DEHYDRATE_NOW`, both follow it). Same item in the same run gets the same id.
 - `kind`: `worktree`, `session`, `orphan` (unregistered dir) or `main-snapshot`.
-- `repo`: `{path, origin}`. `worktree`: `{path, branch, head, dirty_count, untracked_count, unpushed, upstream}`.
+- `repo`: `{path, origin}`. `worktree`: `{path, branch, head, dirty_count, untracked_count, unpushed, upstream, sparse}` (`sparse`: `{cone, patterns}` for a sparse-checkout worktree, else null; since 0.2.2).
 - `snapshot`: `{ref, commit, tree, parent, bundle, bundle_sha256, bundle_bytes}`.
 - `ignored`: `{path, count, sha256}` or null.
 - `sessions`: one entry per bound session: `session_id`, `bg_id`, `name`, `title`, `first_prompt`,

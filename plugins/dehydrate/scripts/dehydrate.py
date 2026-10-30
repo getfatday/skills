@@ -59,6 +59,7 @@ ACTIVE_STATES = {"working", "busy", "running"}
 PRESSURE_RELEASE_STATES = {"done", "blocked"}
 ENDED_STATES = {"done", "stopped", "failed"}  # a job dir's worktree may go only once its session ended (and the grace passed)
 PRESSURE_RECENT_S = 2 * 3600  # --pressure: a tree touched this recently is in use, whatever its session says
+PRESSURE_MARGIN_BYTES = 200 * 2 ** 20  # --pressure: free space an item's capture must leave over its estimate
 BIG_TREE_TIMEOUT_S = 3600  # git calls that check out, read or remove a whole tree (300k files take minutes)
 
 DEFAULTS = {
@@ -253,16 +254,42 @@ def excluded(path, cfg):
 
 # ---------------------------------------------------------------- sessions
 
+class AgentsUnavailable(RuntimeError):
+    """`claude agents --json --all` could not be read (twice). Callers hold what it would have decided."""
+
+
+def agents_timeout_s():
+    return float(os.environ.get("DEHYDRATE_AGENTS_TIMEOUT_S", "300"))  # it takes minutes on a host short of disk
+
+
 def load_agents(args):
+    """The agents roster: --agents-json, or `claude agents --json --all` with a 300 s timeout, tried twice. Raises
+    AgentsUnavailable; a failure is remembered on args so one plan does not wait for it again."""
     if getattr(args, "_agents", None) is not None:
         return args._agents
+    if getattr(args, "_agents_error", None):
+        raise AgentsUnavailable(args._agents_error)
     if args.agents_json:
-        return json.load(open(args.agents_json))
-    r = subprocess.run([args.claude_bin, "agents", "--json", "--all"], capture_output=True, text=True,
-                       timeout=60)
-    if r.returncode != 0:
-        raise RuntimeError(f"claude agents --json --all failed: {r.stderr.strip()[:300]}")
-    return json.loads(r.stdout or "[]")
+        try:
+            with open(args.agents_json) as fh:
+                return json.load(fh)
+        except (OSError, ValueError) as e:
+            args._agents_error = f"agents list unavailable ({args.agents_json}: {e})"
+            raise AgentsUnavailable(args._agents_error)
+    why, tmo = None, agents_timeout_s()
+    for _ in range(2):
+        try:
+            r = subprocess.run([args.claude_bin, "agents", "--json", "--all"], capture_output=True, text=True,
+                               timeout=tmo, stdin=subprocess.DEVNULL)
+            if r.returncode == 0:
+                return json.loads(r.stdout or "[]")
+            why = f"exit {r.returncode}: {r.stderr.strip()[:200]}"
+        except subprocess.TimeoutExpired:
+            why = f"no answer in {tmo:g}s"
+        except (OSError, ValueError) as e:
+            why = f"{e.__class__.__name__}: {str(e)[:200]}"
+    args._agents_error = f"agents list unavailable (claude agents --json --all, tried twice: {why})"
+    raise AgentsUnavailable(args._agents_error)
 
 
 def transcript_index(ch):
@@ -681,7 +708,7 @@ def job_dir_hold(path, jobs, cfg, now):
         return None
     jid = os.path.relpath(path, jobs["root"]).split(os.sep)[0]
     if jobs["rows"] is None:
-        return f"inside the job dir of session {jid}, and `claude agents` could not be read to see whether it ended"
+        return f"agents list unavailable: inside the job dir of session {jid}, which may still be running"
     s = jobs["rows"].get(jid)
     if s is None:
         return None
@@ -795,6 +822,9 @@ def repo_rows(repo, cfg, sessions, keep_sessions, tidx, now, only, cwds, me_cwd,
                 row.update(action="keep", reason=f"bound to kept session {kept[0]['bg_id'] or kept[0]['session_id'][:8]}")
             elif job:
                 row.update(action="hold", reason=job)
+            elif jobs and jobs["rows"] is None and row["sessions"]:
+                row.update(action="hold", reason=f"agents list unavailable: bound to session {row['sessions'][0][:8]}, "
+                                                 "which may still be running")
             elif now - row["last_activity"] < wt_days * 86400:
                 row.update(action="keep", reason=f"active {row['idle_days']}d ago (< {cfg['days']}d)")
             elif pressure and now - row["last_activity"] < PRESSURE_RECENT_S:
@@ -864,8 +894,14 @@ def build_plan(args, cfg):
     pressure = getattr(args, "pressure", False)
     ch = claude_home(args)
     tidx = transcript_index(ch)
-    sessions = session_rows(args, cfg, tidx, now) if not args.no_sessions else []
-    jobs = job_sessions(args, cfg, tidx, now, None if args.no_sessions else sessions)
+    sessions, agents_err = [], None
+    if not args.no_sessions:
+        try:
+            sessions = session_rows(args, cfg, tidx, now)
+        except AgentsUnavailable as e:  # hold every session-bound and job-dir tree; close no session
+            agents_err = str(e)
+    jobs = {"root": os.path.realpath(os.path.join(claude_home(args), "jobs")), "rows": None} if agents_err else \
+        job_sessions(args, cfg, tidx, now, None if args.no_sessions else sessions)
     if args.no_main or args.only:
         cfg = dict(cfg, snapshot_main=False)
     if args.no_worktrees and not cfg["snapshot_main"]:
@@ -914,7 +950,7 @@ def build_plan(args, cfg):
         press = {"target_gb": args.target_gb, "free_gb": round(free_gb(), 2),
                  "order": [w["path"] for w in order], "estimated_stop_after": est}
     return {"schema": SCHEMA, "now": now, "now_iso": iso(now), "days": cfg["days"], "host": socket.gethostname(),
-            "pressure": press,
+            "pressure": press, "agents_unavailable": agents_err or (jobs["rows"] is None and getattr(args, "_agents_error", None)) or None,
             "sessions": sessions, "worktrees": wts, "mains": mains, "orphans": orphans,
             "totals": {
                 "sessions_close": sum(s["action"] == "close" for s in sessions),
@@ -943,6 +979,8 @@ def render_plan(plan, applied=False):
          f"prune {t['worktrees_prune']}, excluded {t['worktrees_excluded']} (other systems' trees, never touched)",
          f"  leftover dirs: archive {t['orphans_archive']}   main checkouts: snapshot {t['mains_snapshot']}",
          f"  frees about {t['reclaim_kb'] / 2**20:.2f} GB", ""]
+    if plan.get("agents_unavailable"):
+        L.insert(1, f"  {plan['agents_unavailable']}: no session closes, and every session-bound or job-dir worktree is held")
     pr = plan.get("pressure")
     if pr:
         L[0] = f"dehydrate plan @ {plan['now_iso']} (PRESSURE: idle window ignored, stop at {pr['target_gb']} GB free)"
@@ -1048,19 +1086,43 @@ def write_index(sd):
 
 # ---------------------------------------------------------------- snapshot
 
+def sparse_info(path):
+    """{"cone": bool, "patterns": [...]} when the worktree uses sparse-checkout, else None."""
+    if gout(path, "config", "--bool", "core.sparseCheckout") != "true":
+        return None
+    pats = [x for x in gout(path, "sparse-checkout", "list").splitlines() if x]
+    return {"cone": gout(path, "config", "--bool", "core.sparseCheckoutCone") != "false", "patterns": pats}
+
+
+def git_at_least(*want):
+    m = re.search(r"(\d+)\.(\d+)", gout(os.getcwd(), "--version"))
+    return bool(m) and tuple(int(x) for x in m.groups()) >= want
+
+
 def snapshot_tree(path, skip=()):
-    """Tree of the worktree as it stands (tracked + staged + untracked, ignores respected)."""
+    """Tree of the worktree as it stands (tracked + staged + untracked, ignores respected).
+
+    A sparse worktree starts from a copy of its real index, whose skip-worktree bits mark the files outside the
+    cone as absent on purpose; a temp index read from HEAD has no such bits, and `add -A` would record every one
+    of them as deleted. `--sparse` lets add touch entries outside the cone (git >= 2.34)."""
     fd, idx = tempfile.mkstemp(prefix="dehydrate-idx-")
     os.close(fd)
     os.unlink(idx)
     try:
         env = {"GIT_INDEX_FILE": idx}
+        sparse = sparse_info(path) is not None
+        if sparse and not git_at_least(2, 34):
+            raise RuntimeError("sparse-checkout worktree needs git 2.34+ (git add --sparse) to be captured")
+        real = os.path.join(worktree_gitdir(path) or "", "index")
         head_ok = git(path, "rev-parse", "--verify", "-q", "HEAD").returncode == 0
-        if head_ok:
+        if sparse and os.path.isfile(real):
+            shutil.copyfile(real, idx)
+        elif head_ok:
             git(path, "read-tree", "HEAD", env=env, check=True, timeout=BIG_TREE_TIMEOUT_S)
         # excluding an already-ignored path is an error for git add, and unnecessary
         skip = [k for k in skip if git(path, "check-ignore", "-q", "--", k.rstrip("/")).returncode != 0]
-        git(path, "add", "-A", "--", ".", *[f":(exclude){k}" for k in skip], env=env, check=True, timeout=1800)
+        git(path, "add", "-A", *(["--sparse"] if sparse else []), "--", ".", *[f":(exclude){k}" for k in skip],
+            env=env, check=True, timeout=1800)
         return gout(path, "write-tree", env=env) or None
     finally:
         with contextlib.suppress(OSError):
@@ -1242,6 +1304,27 @@ def describe(sessions, branch, path):
 
 # ---------------------------------------------------------------- apply
 
+def capture_estimate(w):
+    """Upper bound, in bytes, of what capturing w writes to disk: the raw overlay (dirty + untracked bytes), the
+    gitignored-real tarball, and the bundle (objects of unpushed commits, plus the snapshot's blobs, which are the
+    same dirty + untracked bytes). Compression only makes the real figure smaller."""
+    f = w.get("facts") or {}
+    overlay = 0
+    for rel in f.get("changed_paths", []):
+        with contextlib.suppress(OSError):
+            overlay += os.lstat(os.path.join(w["path"], rel)).st_size
+    objs = 0
+    if f.get("unpushed"):
+        revs = gout(w["path"], "rev-list", "--objects", "HEAD", "--not", "--remotes", timeout=600)
+        ids = "\n".join(line.split(" ", 1)[0] for line in revs.splitlines() if line)
+        if ids:
+            r = subprocess.run(["git", "-C", w["path"], "cat-file", "--batch-check=%(objectsize)"], input=ids + "\n",
+                               capture_output=True, text=True, timeout=600)
+            objs = sum(int(x) for x in r.stdout.split() if x.isdigit())
+    return {"overlay": overlay, "ignored": f.get("ignored_real_bytes", 0), "bundle": objs + overlay,
+            "total": overlay + f.get("ignored_real_bytes", 0) + objs + overlay}
+
+
 class LockHeld(SystemExit):
     pass
 
@@ -1331,15 +1414,20 @@ def recheck_worktree(args, cfg, sd, w, stage):
         if g:
             return f"excluded by {g} (config.json re-read {stage})"
         now = max(getattr(args, "now", None) or 0, time.time())
-        fa = fresh_agents(args)
         tidx = transcript_index(claude_home(args))
-        every = session_rows(fa, c, tidx, now)
+        try:
+            fa = fresh_agents(args)
+            every = session_rows(fa, c, tidx, now)
+            jobs = job_sessions(fa, c, tidx, now, every)
+        except AgentsUnavailable as e:  # session-bound and job-dir trees are held; the rest may still go
+            args._agents_error = str(e)  # this run does not wait for the roster again
+            fa, every = args, []
+            jobs = {"root": os.path.realpath(os.path.join(claude_home(args), "jobs")), "rows": None}
         sessions = [] if getattr(args, "no_sessions", False) else every
         keep = [s for s in sessions if s["action"] == "keep" and s.get("rcwd")]
         repo = {"path": w["repo"], "common_dir": os.path.realpath(os.path.join(w["repo"], ".git"))}
         rows, _, _ = repo_rows(repo, dict(c, snapshot_main=False), sessions, keep, tidx, now, [w["path"]],
-                               process_cwds(), os.path.realpath(os.getcwd()), getattr(args, "pressure", False),
-                               job_sessions(fa, c, tidx, now, every))
+                               process_cwds(), os.path.realpath(os.getcwd()), getattr(args, "pressure", False), jobs)
     except Exception as e:
         return f"could not re-check it {stage} ({e.__class__.__name__}: {str(e)[:150]})"
     row = next((r for r in rows if r["path"] == w["path"]), None)
@@ -1403,7 +1491,31 @@ def apply_plan(args, cfg, plan, sd):
     if press:
         res["pressure"] = {"target_gb": press["target_gb"], "reached": False, "free_checked_gb": None}
 
+    last_free = {}
+
+    def room_for(w):
+        """--pressure replaces the fixed floor, which blocks every item exactly when disk is lowest: an item goes
+        when the free space read for it covers its capture estimate plus PRESSURE_MARGIN_BYTES."""
+        if not press:
+            return floor_ok()
+        est = capture_estimate(w)
+        free = last_free.get("gb", free_gb()) * 2 ** 30
+        need = est["total"] + PRESSURE_MARGIN_BYTES
+        if free < need:
+            res["paused"] = (f"free disk {free / 2**30:.2f} GB is under what capturing {short(w['path'])} needs: "
+                             f"about {est['total'] / 2**20:.0f} MB (overlay {est['overlay'] / 2**20:.0f} MB, ignored "
+                             f"{est['ignored'] / 2**20:.0f} MB, bundle up to {est['bundle'] / 2**20:.0f} MB) plus a "
+                             f"{PRESSURE_MARGIN_BYTES // 2**20} MB margin")
+            return False
+        return True
+
     def floor_ok():
+        if press:  # sessions closed with a removed worktree: transcripts and a capped job archive, plus the margin
+            need = cfg["job_tmp_cap_mb"] * 2 ** 20 + PRESSURE_MARGIN_BYTES
+            if free_gb() * 2 ** 30 < need:
+                res["paused"] = f"free disk {free_gb():.2f} GB under {need / 2**30:.2f} GB (job archive cap plus margin)"
+                return False
+            return True
         if free_gb() < cfg["disk_floor_gb"]:
             res["paused"] = f"free disk {free_gb():.2f} GB under floor {cfg['disk_floor_gb']} GB"
             return False
@@ -1414,6 +1526,7 @@ def apply_plan(args, cfg, plan, sd):
         if not press:
             return False
         f = pressure_free_gb()
+        last_free["gb"] = f
         res["pressure"]["free_checked_gb"] = round(f, 2)
         res["pressure"]["reached"] = f >= press["target_gb"]
         return res["pressure"]["reached"]
@@ -1459,7 +1572,8 @@ def apply_plan(args, cfg, plan, sd):
                    "repo": {"path": w["repo"], "origin": w["origin"]},
                    "worktree": {"path": w["path"], "branch": w["branch"], "head": w["head"],
                                 "dirty_count": w["facts"]["dirty_count"], "untracked_count": w["facts"]["untracked_count"],
-                                "unpushed": w["facts"]["unpushed"], "upstream": w["facts"]["upstream"]},
+                                "unpushed": w["facts"]["unpushed"], "upstream": w["facts"]["upstream"],
+                                "sparse": sparse_info(w["path"])},
                    "snapshot": snap, "raw": raw, "ignored": itar, "sessions": sess, "size_kb": w.get("size_kb"),
                    "description": describe(sess, w["branch"], w["path"]), "archive": archive, "removed": False,
                    "idle_days": w["idle_days"]}
@@ -1635,7 +1749,7 @@ def apply_plan(args, cfg, plan, sd):
         else:
             wl.sort(key=lambda w: w.get("size_kb", 0))
         for w in wl:
-            if target_reached() or not floor_ok():
+            if target_reached() or not room_for(w):
                 break
             guarded("worktrees", {"path": w["path"]}, lambda: do_worktree(w))
         else:
@@ -2424,6 +2538,8 @@ def rehydrate_worktree(rec, target, args, touched=None):
     parent = snap.get("parent")
     notes = []
     big = {"check": True, "timeout": BIG_TREE_TIMEOUT_S}
+    sp = (rec.get("worktree") or {}).get("sparse")
+    nc = ["--no-checkout"] if sp else []  # a sparse tree is checked out only after its patterns are set
     made = None  # (branch, start) when worktree add creates the branch, so a timed-out add can take it back
     if touched is not None:
         touched["disk"] = True
@@ -2432,19 +2548,27 @@ def rehydrate_worktree(rec, target, args, touched=None):
             tip = gout(repo, "rev-parse", f"refs/heads/{branch}")
             in_use = any(w["branch"] == branch for w in list_worktrees(repo))
             if tip == parent and not in_use:
-                git(repo, "worktree", "add", "-q", target, branch, **big)
+                git(repo, "worktree", "add", "-q", *nc, target, branch, **big)
             else:
                 nb = f"{branch}-rehydrated-{dt.date.today():%Y%m%d}"
                 why = "checked out elsewhere" if in_use else f"moved since dehydrate ({tip[:8]} != {str(parent)[:8]})"
                 made = (nb, parent or snap["commit"])
-                git(repo, "worktree", "add", "-q", "-b", nb, target, parent or snap["commit"], **big)
+                git(repo, "worktree", "add", "-q", *nc, "-b", nb, target, parent or snap["commit"], **big)
                 notes.append(f"branch {branch} {why}; restored on new branch {nb}")
         elif branch:
             made = (branch, parent or snap["commit"])
-            git(repo, "worktree", "add", "-q", "-b", branch, target, parent or snap["commit"], **big)
+            git(repo, "worktree", "add", "-q", *nc, "-b", branch, target, parent or snap["commit"], **big)
             notes.append(f"branch {branch} was deleted; recreated at {str(parent)[:8]}")
         else:
-            git(repo, "worktree", "add", "-q", "--detach", target, parent or snap["commit"], **big)
+            git(repo, "worktree", "add", "-q", *nc, "--detach", target, parent or snap["commit"], **big)
+        if sp:
+            r = subprocess.run(["git", "-C", target, "sparse-checkout", "set", "--cone" if sp["cone"] else "--no-cone",
+                                "--stdin"], input="\n".join(sp["patterns"]) + "\n", capture_output=True, text=True,
+                               timeout=BIG_TREE_TIMEOUT_S)
+            if r.returncode != 0:
+                raise RuntimeError(f"sparse-checkout set failed: {r.stderr.strip()[:300]}")
+            git(target, "checkout", "-q", **big)
+            notes.append(f"restored sparse-checkout ({'cone' if sp['cone'] else 'patterns'}: {', '.join(sp['patterns'])[:200]})")
         # working tree := snapshot tree, index := HEAD (changes come back unstaged, untracked stays untracked)
         git(target, "checkout", snap["commit"], "--", ".", **big)
         git(target, "reset", "-q", **big)
@@ -2457,6 +2581,8 @@ def rehydrate_worktree(rec, target, args, touched=None):
             git(target, "read-tree", snap["index_tree"], **big)  # staged changes come back staged
         else:
             notes.append("staging not restored (no index recorded or branch moved); all changes are unstaged")
+        if sp:
+            git(target, "sparse-checkout", "reapply", **big)  # read-tree drops the skip-worktree bits
     except subprocess.TimeoutExpired as e:
         raise SystemExit(abandon_partial(rec, repo, target, made, e, touched))
     if rec.get("ignored"):
