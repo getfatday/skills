@@ -1,7 +1,9 @@
 # Storage layout
 
 Events: `dehydrated` (written before anything is removed), `removed` (the worktree or session
-is gone), `rehydrated` (with `launched` when `--launch` ran). A record whose `removed` event is missing was captured but left in place.
+is gone), `left-in-place` (`{event, id, at, reason}`: captured, then a re-check right before removal
+held it, so the tree stays and the snapshot is kept), `rehydrated` (with `launched` when `--launch` ran). A record whose
+`removed` event is missing was captured but left in place.
 
 Everything lives at the user level, one place for every repo: `$DEHYDRATE_HOME` or
 `~/.claude/dehydrated/`.

@@ -134,6 +134,18 @@ running `/dehydrate`, so it lands in the manifest and the rehydrate picker.
   paths), submodule checkouts, dirty submodules, untracked files over 100 MB (or 500 MB total), gitignored
   files to archive over 300 MB. A held worktree's stale session still closes, since the
   conversation survives.
+- **Job dirs belong to their session**: a worktree under `~/.claude/jobs/<id>/` (real paths) is held
+  while session `<id>` is listed in `claude agents --json --all` and has not been done, stopped or
+  failed for at least `auto_grace_minutes`, or its process still runs; the reason names the session
+  ("inside the job dir of working session 8e6abbd6 ..."). An unreadable agents list holds them all.
+  Under `--pressure` a worktree whose files or HEAD reflog changed in the last 2 hours is held too.
+- **Re-checked right before acting**: apply reads `config.json` again and rebuilds each item's
+  holds just before its capture and again just before its removal, so an exclusion or a lock added
+  while a run is going stops the items it matches (reported as skipped, exit 0). An item captured
+  but then held keeps its snapshot and a `left-in-place` manifest event; its tree stays.
+- **Git's own `initializing` lock** (left by a killed `git worktree add`) is held and reported as an
+  interrupted checkout with the `git worktree unlock <path>` that clears it, unless a git process is
+  still writing that path.
 - **Archived, not judged**: every gitignored file is archived except pure tool output
   (node_modules, .venv, __pycache__, DerivedData, Pods and similar). Ambiguous names like
   `build/`, `dist/` or `*.log` are archived, since a human may have put real files there.

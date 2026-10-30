@@ -57,6 +57,9 @@ SCHEMA = 1
 HERE = os.path.dirname(os.path.abspath(__file__))
 ACTIVE_STATES = {"working", "busy", "running"}
 PRESSURE_RELEASE_STATES = {"done", "blocked"}
+ENDED_STATES = {"done", "stopped", "failed"}  # a job dir's worktree may go only once its session ended (and the grace passed)
+PRESSURE_RECENT_S = 2 * 3600  # --pressure: a tree touched this recently is in use, whatever its session says
+BIG_TREE_TIMEOUT_S = 3600  # git calls that check out, read or remove a whole tree (300k files take minutes)
 
 DEFAULTS = {
     "days": 7,
@@ -644,21 +647,82 @@ def read_head_branch(common_dir):
     return h[len("ref: refs/heads/"):] if h.startswith("ref: refs/heads/") else None
 
 
-def worktree_rows(cfg, sessions, tidx, now, only=None, pressure=False):
+def worktree_rows(cfg, sessions, tidx, now, only=None, pressure=False, jobs=None):
     from concurrent.futures import ThreadPoolExecutor
     repos = find_repos(cfg)
     cwds = process_cwds()
     me_cwd = os.path.realpath(os.getcwd())
     keep_sessions = [s for s in sessions if s["action"] == "keep" and s.get("rcwd")]
     with ThreadPoolExecutor(max_workers=cfg.get("workers", 8)) as ex:
-        parts = list(ex.map(lambda r: repo_rows(r, cfg, sessions, keep_sessions, tidx, now, only, cwds, me_cwd, pressure), repos))
+        parts = list(ex.map(lambda r: repo_rows(r, cfg, sessions, keep_sessions, tidx, now, only, cwds, me_cwd, pressure,
+                                                jobs), repos))
     rows = [x for p in parts for x in p[0]]
     mains = [x for p in parts for x in p[1]]
     orphans = [x for p in parts for x in p[2]]
     return rows, mains, orphans
 
 
-def repo_rows(repo, cfg, sessions, keep_sessions, tidx, now, only, cwds, me_cwd, pressure=False):
+def job_sessions(args, cfg, tidx, now, sessions=None):
+    """{"root": realpath of <claude home>/jobs, "rows": bg id -> session row}; rows is None when `claude agents`
+    cannot be read, which holds every worktree under a job dir (fail closed)."""
+    root = os.path.realpath(os.path.join(claude_home(args), "jobs"))
+    if sessions is None:
+        try:
+            sessions = session_rows(args, cfg, tidx, now)
+        except Exception:
+            return {"root": root, "rows": None}
+    return {"root": root, "rows": {s["bg_id"]: s for s in sessions if s.get("bg_id")}}
+
+
+def job_dir_hold(path, jobs, cfg, now):
+    """Why a worktree inside ~/.claude/jobs/<id>/ must stay: its session <id> is listed and has not ended at least
+    auto_grace_minutes ago (or its process still runs). None when it is not in a job dir or that session is gone."""
+    if not jobs or not under(path, jobs["root"]) or path.rstrip("/") == jobs["root"]:
+        return None
+    jid = os.path.relpath(path, jobs["root"]).split(os.sep)[0]
+    if jobs["rows"] is None:
+        return f"inside the job dir of session {jid}, and `claude agents` could not be read to see whether it ended"
+    s = jobs["rows"].get(jid)
+    if s is None:
+        return None
+    state = s.get("state") or "unknown"
+    label = f"inside the job dir of {state} session {jid}" + (f" {s['name']}" if s.get("name") else "")
+    if state not in ENDED_STATES:
+        return label
+    grace = cfg["auto_grace_minutes"] * 60
+    if now - s["last_activity"] < grace:
+        return f"{label} (ended {(now - s['last_activity']) / 60:.0f} min ago, < auto_grace_minutes {cfg['auto_grace_minutes']})"
+    if s.get("pid") and pid_alive(s["pid"]):
+        return f"{label} (its process {s['pid']} is still alive)"
+    return None
+
+
+def git_processes_on(path, live=()):
+    """pids of running git commands that name path or have their cwd inside it (`git worktree add` runs in the repo)."""
+    try:
+        out = subprocess.run(["ps", "-axww", "-o", "pid=,args="], capture_output=True, text=True, timeout=30).stdout
+    except Exception:
+        return ["unknown (ps failed)"]
+    hits = []
+    for line in out.splitlines():
+        pid, _, cmd = line.strip().partition(" ")
+        exe = os.path.basename(cmd.split(" ", 1)[0]) if cmd else ""
+        if (exe == "git" or exe.startswith("git-")) and (path in cmd or pid in live):
+            hits.append(pid)
+    return hits
+
+
+def lock_hold(w, path, live):
+    if w["lock_reason"] != "initializing":
+        return f"locked ({w['lock_reason'] or 'no reason'})"
+    busy = git_processes_on(path, live)
+    if busy:
+        return f"checkout in progress (git lock 'initializing'; git process {busy[0]} is still writing it)"
+    return ("interrupted checkout (git lock 'initializing' left by a killed worktree add); "
+            f"unlock with: git worktree unlock {shlex.quote(path)}")
+
+
+def repo_rows(repo, cfg, sessions, keep_sessions, tidx, now, only, cwds, me_cwd, pressure=False, jobs=None):
     rows, mains, orphans = [], [], []
     wt_days = 0 if pressure else cfg["days"]  # --pressure ignores the idle window for worktrees only
     if True:
@@ -724,16 +788,23 @@ def repo_rows(repo, cfg, sessions, keep_sessions, tidx, now, only, cwds, me_cwd,
             row["idle_days"] = round((now - row["last_activity"]) / 86400, 2)
             live = [pid for pid, c in cwds if under(c, path)]
             kept = [s for s in keep_sessions if under(s["rcwd"], path)]
+            job = job_dir_hold(path, jobs, cfg, now)
             if under(me_cwd, path):
                 row.update(action="keep", reason="this session's cwd")
             elif kept:
                 row.update(action="keep", reason=f"bound to kept session {kept[0]['bg_id'] or kept[0]['session_id'][:8]}")
+            elif job:
+                row.update(action="hold", reason=job)
             elif now - row["last_activity"] < wt_days * 86400:
                 row.update(action="keep", reason=f"active {row['idle_days']}d ago (< {cfg['days']}d)")
+            elif pressure and now - row["last_activity"] < PRESSURE_RECENT_S:
+                # last_activity folds in the HEAD reflog, the dir, every dirty or untracked file and bound sessions
+                row.update(action="hold", reason=f"pressure: touched {(now - row['last_activity']) / 60:.0f} min ago "
+                                                 f"(files or HEAD reflog within {PRESSURE_RECENT_S // 3600}h)")
+            elif w["locked"]:
+                row.update(action="hold", reason=lock_hold(w, path, live))
             elif not facts:
                 row.update(action="hold", reason="could not read worktree state")
-            elif w["locked"]:
-                row.update(action="hold", reason=f"locked ({w['lock_reason'] or 'no reason'})")
             elif live:
                 row.update(action="hold", reason=f"process {live[0]} has its cwd inside")
             elif facts["unborn"]:
@@ -794,12 +865,13 @@ def build_plan(args, cfg):
     ch = claude_home(args)
     tidx = transcript_index(ch)
     sessions = session_rows(args, cfg, tidx, now) if not args.no_sessions else []
+    jobs = job_sessions(args, cfg, tidx, now, None if args.no_sessions else sessions)
     if args.no_main or args.only:
         cfg = dict(cfg, snapshot_main=False)
     if args.no_worktrees and not cfg["snapshot_main"]:
         wts, mains, orphans = [], [], []
     else:
-        wts, mains, orphans = worktree_rows(cfg, sessions, tidx, now, args.only, pressure)
+        wts, mains, orphans = worktree_rows(cfg, sessions, tidx, now, args.only, pressure, jobs)
         if args.no_worktrees:
             wts, orphans = [], []
     if args.only:
@@ -985,7 +1057,7 @@ def snapshot_tree(path, skip=()):
         env = {"GIT_INDEX_FILE": idx}
         head_ok = git(path, "rev-parse", "--verify", "-q", "HEAD").returncode == 0
         if head_ok:
-            git(path, "read-tree", "HEAD", env=env, check=True)
+            git(path, "read-tree", "HEAD", env=env, check=True, timeout=BIG_TREE_TIMEOUT_S)
         # excluding an already-ignored path is an error for git add, and unnecessary
         skip = [k for k in skip if git(path, "check-ignore", "-q", "--", k.rstrip("/")).returncode != 0]
         git(path, "add", "-A", "--", ".", *[f":(exclude){k}" for k in skip], env=env, check=True, timeout=1800)
@@ -1222,6 +1294,98 @@ def close_session(args, s):
     return {"closed": rc == 0, "steps": [{"cmd": c, "rc": r, "out": o[-400:]} for c, r, o in steps]}
 
 
+RECHECK_KEYS = ("days", "roots", "snapshot_main")  # this run's own overrides (CLI flags, auto's waived window)
+
+
+def test_hook(event, item):
+    """Does nothing. Tests patch it to change config.json or the machine between items ("item": before an item's
+    first re-check, "captured": after its capture, before the re-check that guards its removal)."""
+
+
+def fresh_config(sd, cfg):
+    """config.json read again now, keeping this run's overrides: only exclusions and holds can change a verdict."""
+    fresh = load_config(sd)
+    fresh.update({k: cfg[k] for k in RECHECK_KEYS if k in cfg})
+    return fresh
+
+
+def fresh_agents(args):
+    """A copy of args whose `claude agents` rows are read again now (auto's filter for ended sessions kept)."""
+    fa = argparse.Namespace(**vars(args))
+    fa._agents = None
+    rows = load_agents(fa)
+    flt = getattr(args, "_agents_filter", None)
+    fa._agents = flt(rows) if flt else rows
+    return fa
+
+
+def recheck_worktree(args, cfg, sd, w, stage):
+    """Why w must stay (None: it may go), from its plan row built again from fresh state: config.json, claude
+    agents, transcripts, process cwds and git. Runs right before capture and again right before removal, because
+    a plan can be many minutes old by the time an item's turn comes. Any error fails closed."""
+    try:
+        c = fresh_config(sd, cfg)
+        if c.get("_config_error"):
+            return f"config.json cannot be read {stage} ({c['_config_error'][:150]})"
+        g = excluded(w["path"], c)
+        if g:
+            return f"excluded by {g} (config.json re-read {stage})"
+        now = max(getattr(args, "now", None) or 0, time.time())
+        fa = fresh_agents(args)
+        tidx = transcript_index(claude_home(args))
+        every = session_rows(fa, c, tidx, now)
+        sessions = [] if getattr(args, "no_sessions", False) else every
+        keep = [s for s in sessions if s["action"] == "keep" and s.get("rcwd")]
+        repo = {"path": w["repo"], "common_dir": os.path.realpath(os.path.join(w["repo"], ".git"))}
+        rows, _, _ = repo_rows(repo, dict(c, snapshot_main=False), sessions, keep, tidx, now, [w["path"]],
+                               process_cwds(), os.path.realpath(os.getcwd()), getattr(args, "pressure", False),
+                               job_sessions(fa, c, tidx, now, every))
+    except Exception as e:
+        return f"could not re-check it {stage} ({e.__class__.__name__}: {str(e)[:150]})"
+    row = next((r for r in rows if r["path"] == w["path"]), None)
+    if row is None:
+        return f"no longer a registered worktree ({stage})"
+    if row["action"] != "dehydrate":
+        return f"{row['action']} {stage}: {row['reason']}"
+    return None
+
+
+def recheck_session(args, cfg, sd, s):
+    try:
+        c = fresh_config(sd, cfg)
+        if c.get("_config_error"):
+            return f"config.json cannot be read now ({c['_config_error'][:150]})"
+        g = s.get("rcwd") and excluded(s["rcwd"], c)
+        if g:
+            return f"its cwd is excluded by {g} (config.json re-read before closing)"
+        now = max(getattr(args, "now", None) or 0, time.time())
+        row = next((r for r in session_rows(fresh_agents(args), c, transcript_index(claude_home(args)), now)
+                    if r["session_id"] == s["session_id"]), None)
+    except Exception as e:
+        return f"could not re-check it before closing ({e.__class__.__name__}: {str(e)[:150]})"
+    if row is None:
+        return "no longer listed in claude agents"
+    if row["action"] != "close":
+        return f"{row['reason']} (re-checked before closing)"
+    return None
+
+
+def recheck_path(cfg, sd, path, stage):
+    """Leftover dirs and main checkouts: exclusions (and, for a removal, process cwds) re-read now."""
+    try:
+        c = fresh_config(sd, cfg)
+        if c.get("_config_error"):
+            return f"config.json cannot be read {stage} ({c['_config_error'][:150]})"
+        g = excluded(path, c)
+        if g:
+            return f"excluded by {g} (config.json re-read {stage})"
+        if stage != "before capture" and any(under(cw, path) for _, cw in process_cwds()):
+            return f"a process has its cwd inside ({stage})"
+    except Exception as e:
+        return f"could not re-check it {stage} ({e.__class__.__name__}: {str(e)[:150]})"
+    return None
+
+
 def apply_plan(args, cfg, plan, sd):
     res = {"worktrees": [], "sessions": [], "mains": [], "orphans": [], "pruned": [], "paused": None,
            "df_before_gb": round(free_gb(), 2), "pressure": None}
@@ -1262,6 +1426,12 @@ def apply_plan(args, cfg, plan, sd):
             res[kind].append(dict(item, ok=False, error=f"{e.__class__.__name__}: {str(e)[:300]}"))
 
     def do_worktree(w):
+        test_hook("item", w)
+        why = recheck_worktree(args, cfg, sd, w, "before capture")
+        if why:
+            res["worktrees"].append({"path": w["path"], "ok": False, "skipped": True, "removed": False,
+                                     "error": f"left in place, nothing captured: {why}"})
+            return
         rid = unique_rid(sd, rid_for(os.path.basename(w["path"]), f"{w['path']}\0{w['head']}", now))
         archive = os.path.join(sd, "archive", rid)
         os.makedirs(archive, exist_ok=True)
@@ -1303,8 +1473,16 @@ def apply_plan(args, cfg, plan, sd):
                 git(w["repo"], "update-ref", "-d", f"refs/dehydrated/{rid}")
             res["worktrees"].append(out)
             return
+        test_hook("captured", w)
+        why = recheck_worktree(args, cfg, sd, w, "before removal")
+        if why:
+            with contextlib.suppress(Exception):
+                append_manifest(sd, {"event": "left-in-place", "id": rid, "at": stamp(), "reason": why})
+            out.update(ok=False, skipped=True, removed=False, error=f"captured as {rid} but not removed: {why}")
+            res["worktrees"].append(out)
+            return
         try:  # a 300k-file tree can take minutes on a busy disk
-            r = git(w["repo"], "worktree", "remove", "--force", w["path"], timeout=3600)
+            r = git(w["repo"], "worktree", "remove", "--force", w["path"], timeout=BIG_TREE_TIMEOUT_S)
         except subprocess.TimeoutExpired:
             r = subprocess.CompletedProcess([], 1, "", "git worktree remove timed out after 3600s; rerun apply")
         except Exception as e:
@@ -1321,6 +1499,12 @@ def apply_plan(args, cfg, plan, sd):
         wt = s.get("worktree")
         if wt and wt not in removed_paths and s.get("worktree_action") == "dehydrate":
             res["sessions"].append({"bg_id": s["bg_id"], "ok": False, "error": "its worktree was not captured; left open"})
+            return
+        test_hook("item", s)
+        why = recheck_session(args, cfg, sd, s)
+        if why:
+            res["sessions"].append({"bg_id": s["bg_id"], "ok": False, "skipped": True, "name": s.get("name"),
+                                    "error": f"left open: {why}"})
             return
         rid = unique_rid(sd, rid_for("s-" + (s.get("name") or s["bg_id"]), s["session_id"], now))
         archive = os.path.join(sd, "archive", rid)
@@ -1360,6 +1544,11 @@ def apply_plan(args, cfg, plan, sd):
                                              f"yourself with `claude rm {s['bg_id']}` if you are done with it."})
 
     def do_orphan(o):
+        test_hook("item", o)
+        why = recheck_path(cfg, sd, o["path"], "before capture")
+        if why:
+            res["orphans"].append({"path": o["path"], "ok": False, "skipped": True, "error": f"left in place: {why}"})
+            return
         rid = unique_rid(sd, rid_for(os.path.basename(o["path"]), o["path"], now))
         archive = os.path.join(sd, "archive", rid)
         os.makedirs(archive, exist_ok=True)
@@ -1374,6 +1563,14 @@ def apply_plan(args, cfg, plan, sd):
             shutil.rmtree(archive, ignore_errors=True)
             res["orphans"].append({"path": o["path"], "ok": False, "error": str(e)[:300]})
             return
+        test_hook("captured", o)
+        why = recheck_path(cfg, sd, o["path"], "before removal")
+        if why:
+            with contextlib.suppress(Exception):
+                append_manifest(sd, {"event": "left-in-place", "id": rid, "at": stamp(), "reason": why})
+            res["orphans"].append({"id": rid, "path": o["path"], "ok": False, "skipped": True,
+                                   "error": f"archived as {rid} but not removed: {why}"})
+            return
         try:
             shutil.rmtree(o["path"])
             with contextlib.suppress(Exception):
@@ -1383,6 +1580,11 @@ def apply_plan(args, cfg, plan, sd):
             res["orphans"].append({"id": rid, "path": o["path"], "ok": False, "error": f"archived as {rid} but not removed: {e}"})
 
     def do_main(m, last_tree):
+        test_hook("item", m)
+        why = recheck_path(cfg, sd, os.path.realpath(m["path"]), "before capture")
+        if why:
+            res["mains"].append({"path": m["path"], "ok": False, "skipped": True, "error": f"not captured: {why}"})
+            return
         try:
             mp = os.path.realpath(m["path"])
             skip = sorted(os.path.relpath(os.path.realpath(w["path"]), mp) + "/" for w in list_worktrees(m["repo"])[1:]
@@ -2032,7 +2234,9 @@ def _auto(args, cfg, sd, trigger, out):
         a2.only, a2.no_sessions, a2.no_worktrees, a2.no_main, a2.pressure = [top] + sids, False, False, True, False
         a2.now = max(now, time.time())  # days=0 waives the window only if no mtime reads as later than "now"
         # an interactive session that just exited must not be read as a kept (open) session
-        a2._agents = [a for a in agents if a.get("sessionId") not in sids or a.get("kind") == "background"]
+        a2._agents_filter = lambda rows, sids=sids: [a for a in rows if a.get("sessionId") not in sids
+                                                     or a.get("kind") == "background"]
+        a2._agents = a2._agents_filter(agents)
         a2._names = {c["session_id"]: c["name"] for c, _ in group if c.get("name")}
         cfg2 = dict(cfg, days=0, snapshot_main=False)  # the idle window is waived for these items only
         try:
@@ -2215,38 +2419,46 @@ def rehydrate_worktree(rec, target, args, touched=None):
         b = snap["bundle"]
         if not os.path.isfile(b) or sha256(b) != snap["bundle_sha256"]:
             raise SystemExit(f"snapshot {snap['commit']} is not in {repo} and the bundle is missing or corrupt")
-        git(repo, "fetch", "-q", b, f"{ref}:{ref}", check=True)
+        git(repo, "fetch", "-q", b, f"{ref}:{ref}", check=True, timeout=BIG_TREE_TIMEOUT_S)
     branch = (rec.get("worktree") or {}).get("branch")
     parent = snap.get("parent")
     notes = []
+    big = {"check": True, "timeout": BIG_TREE_TIMEOUT_S}
+    made = None  # (branch, start) when worktree add creates the branch, so a timed-out add can take it back
     if touched is not None:
         touched["disk"] = True
-    if branch and git(repo, "rev-parse", "--verify", "-q", f"refs/heads/{branch}").returncode == 0:
-        tip = gout(repo, "rev-parse", f"refs/heads/{branch}")
-        in_use = any(w["branch"] == branch for w in list_worktrees(repo))
-        if tip == parent and not in_use:
-            git(repo, "worktree", "add", "-q", target, branch, check=True)
+    try:
+        if branch and git(repo, "rev-parse", "--verify", "-q", f"refs/heads/{branch}").returncode == 0:
+            tip = gout(repo, "rev-parse", f"refs/heads/{branch}")
+            in_use = any(w["branch"] == branch for w in list_worktrees(repo))
+            if tip == parent and not in_use:
+                git(repo, "worktree", "add", "-q", target, branch, **big)
+            else:
+                nb = f"{branch}-rehydrated-{dt.date.today():%Y%m%d}"
+                why = "checked out elsewhere" if in_use else f"moved since dehydrate ({tip[:8]} != {str(parent)[:8]})"
+                made = (nb, parent or snap["commit"])
+                git(repo, "worktree", "add", "-q", "-b", nb, target, parent or snap["commit"], **big)
+                notes.append(f"branch {branch} {why}; restored on new branch {nb}")
+        elif branch:
+            made = (branch, parent or snap["commit"])
+            git(repo, "worktree", "add", "-q", "-b", branch, target, parent or snap["commit"], **big)
+            notes.append(f"branch {branch} was deleted; recreated at {str(parent)[:8]}")
         else:
-            nb = f"{branch}-rehydrated-{dt.date.today():%Y%m%d}"
-            why = "checked out elsewhere" if in_use else f"moved since dehydrate ({tip[:8]} != {str(parent)[:8]})"
-            git(repo, "worktree", "add", "-q", "-b", nb, target, parent or snap["commit"], check=True)
-            notes.append(f"branch {branch} {why}; restored on new branch {nb}")
-    elif branch:
-        git(repo, "worktree", "add", "-q", "-b", branch, target, parent or snap["commit"], check=True)
-        notes.append(f"branch {branch} was deleted; recreated at {str(parent)[:8]}")
-    else:
-        git(repo, "worktree", "add", "-q", "--detach", target, parent or snap["commit"], check=True)
-    # working tree := snapshot tree, index := HEAD (changes come back unstaged, untracked stays untracked)
-    git(target, "checkout", snap["commit"], "--", ".", check=True)
-    git(target, "reset", "-q", check=True)
-    gone = gout(target, "diff", "--name-only", "--no-renames", "--diff-filter=D", "-z", "HEAD", snap["commit"])
-    for rel in [x for x in gone.split("\0") if x]:
-        with contextlib.suppress(FileNotFoundError):
-            os.unlink(os.path.join(target, rel))
-    if snap.get("index_tree") and gout(target, "rev-parse", "HEAD") == parent:
-        git(target, "read-tree", snap["index_tree"], check=True)  # staged changes come back staged
-    else:
-        notes.append("staging not restored (no index recorded or branch moved); all changes are unstaged")
+            git(repo, "worktree", "add", "-q", "--detach", target, parent or snap["commit"], **big)
+        # working tree := snapshot tree, index := HEAD (changes come back unstaged, untracked stays untracked)
+        git(target, "checkout", snap["commit"], "--", ".", **big)
+        git(target, "reset", "-q", **big)
+        gone = gout(target, "diff", "--name-only", "--no-renames", "--diff-filter=D", "-z", "HEAD", snap["commit"],
+                    timeout=BIG_TREE_TIMEOUT_S)
+        for rel in [x for x in gone.split("\0") if x]:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(os.path.join(target, rel))
+        if snap.get("index_tree") and gout(target, "rev-parse", "HEAD") == parent:
+            git(target, "read-tree", snap["index_tree"], **big)  # staged changes come back staged
+        else:
+            notes.append("staging not restored (no index recorded or branch moved); all changes are unstaged")
+    except subprocess.TimeoutExpired as e:
+        raise SystemExit(abandon_partial(rec, repo, target, made, e, touched))
     if rec.get("ignored"):
         with tarfile.open(rec["ignored"]["path"], "r:gz") as tf:
             safe_extract(tf, target)
@@ -2263,9 +2475,42 @@ def rehydrate_worktree(rec, target, args, touched=None):
                 bad.append(r)
         if bad:
             notes.append(f"WARNING: {len(bad)} restored files differ from what was captured, first {bad[0]}")
-    if snapshot_tree(target) != snap["tree"]:
-        notes.append("WARNING: restored tree differs from the snapshot tree")
+    try:
+        if snapshot_tree(target) != snap["tree"]:
+            notes.append("WARNING: restored tree differs from the snapshot tree")
+    except subprocess.TimeoutExpired:
+        notes.append("restored, but the check against the snapshot tree timed out; run `git status` there to look")
     return notes
+
+
+def abandon_partial(rec, repo, target, made, e, touched):
+    """A timed-out checkout leaves a half-written worktree that git keeps locked "initializing". It holds only a
+    fresh checkout (the work is in the snapshot), so unlock and remove it, take back a branch the add created,
+    and leave the record un-rehydrated. Returns the error to print."""
+    cmd = " ".join(str(x) for x in (e.cmd or [])[3:5]) or "checkout"
+    git(repo, "worktree", "unlock", target)
+    try:
+        git(repo, "worktree", "remove", "--force", "--force", target, timeout=BIG_TREE_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        pass
+    if os.path.lexists(target):
+        shutil.rmtree(target, ignore_errors=True)
+    git(repo, "worktree", "prune")
+    if made and gout(repo, "rev-parse", "--verify", "-q", f"refs/heads/{made[0]}") == gout(repo, "rev-parse", made[1]):
+        git(repo, "branch", "-D", made[0])
+    gone = not os.path.lexists(target) and \
+        all(os.path.realpath(w["path"]) != os.path.realpath(target) for w in list_worktrees(repo))
+    snap = rec["snapshot"]
+    head = f"git {cmd} timed out after {int(e.timeout)}s while restoring {target} (a very large tree on a busy disk). "
+    if gone:
+        if touched is not None:
+            touched["disk"] = False  # nothing is left on disk, so no rehydrated event: the record stays dehydrated
+        return (head + "The partial checkout was unlocked and removed; it held only a fresh checkout, and the work is "
+                f"still in {snap['ref']} and {snap['bundle']}. Nothing is marked rehydrated. Run the same rehydrate "
+                f"again when the disk is quieter: dehydrate.py rehydrate {rec['id']}")
+    return (head + "The partial checkout could not be removed (the work is still in the snapshot). Remove it, then run "
+            f"rehydrate again: git -C {shlex.quote(repo)} worktree unlock {shlex.quote(target)} && "
+            f"git -C {shlex.quote(repo)} worktree remove --force --force {shlex.quote(target)}")
 
 
 UNCONFIRMED_WINDOW_S = 600  # a launch that reported no id blocks another launch of that session this long

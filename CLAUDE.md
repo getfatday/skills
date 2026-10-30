@@ -108,4 +108,6 @@ under `modules` in `hooks.json`) opens a searchable picker on a bare `/rehydrate
 relaunches the session with `claude --bg --resume` (never a duplicate of a listed session). A `session.end`
 hook runs a detached `dehydrate.py auto` that dehydrates the ended session only when its branch is merged
 into the remote default branch; `dehydrate.py config set auto_on_close false` turns it off.
+Since 0.2.1 a worktree inside a live session's job dir (`~/.claude/jobs/<id>/`) is held, `--pressure` holds
+trees touched in the last 2 h, and apply re-reads config and every hold right before each capture and removal.
 Tests: `python3 -m unittest discover -s plugins/dehydrate/tests`; `claude plugin test plugins/dehydrate`.

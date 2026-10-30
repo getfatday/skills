@@ -189,7 +189,11 @@ def remove(row, execute, goal_gb=None):
             pass
     if not execute:
         if cmd == "dehydrate-pressure":
-            return before, f"dry-run: would run dehydrate apply --yes --pressure --target-gb {goal_gb or '<target-gb>'}", True
+            goal = goal_gb if goal_gb is not None else pressure_goal()
+            row["targets"] = auto_classes.pressure_targets(rp, goal)
+            took = "its plan could not be read" if row["targets"] is None else \
+                f"its pressure plan takes {len(row['targets'])} worktree(s)"
+            return before, f"dry-run: would run dehydrate apply --yes --pressure --target-gb {goal:g} ({took})", True
         return before, "dry-run", True
     try:
         if cmd.startswith("rm -rf"):
@@ -204,10 +208,7 @@ def remove(row, execute, goal_gb=None):
             ok, note, freed = auto_classes.rotate_spool(rp, f"disk-reclaim, {acting_session()}")
             return freed, note, ok
         if cmd == "dehydrate-pressure":
-            if goal_gb is None:
-                cfg = auto_classes.auto_config(state_dir())
-                goal_gb = cfg["target_gb"] + cfg["headroom_gb"]
-            ok, note = auto_classes.run_dehydrate(rp, goal_gb)
+            ok, note, row["targets"] = auto_classes.run_dehydrate(rp, goal_gb if goal_gb is not None else pressure_goal())
             return 0, note, ok
     except Exception as e:
         return before, f"failed: {e.__class__.__name__}: {str(e)[:200]}", False
@@ -220,6 +221,20 @@ def remove(row, execute, goal_gb=None):
     return before, f"command failed rc={r.returncode}: {r.stderr.strip()[:200]}", False
 
 
+def pressure_goal():
+    cfg = auto_classes.auto_config(state_dir())
+    return cfg["target_gb"] + cfg["headroom_gb"]
+
+
+def shown(row):
+    """What a printed line names: the worktrees a stale-worktrees row takes (its path is the dehydrate plugin dir,
+    which is only the ledger key), else the row's path."""
+    t = row.get("targets")
+    if row.get("class") == "stale-worktrees" and t is not None:
+        return ", ".join(auto_classes.short(p) for p in t) or "no worktrees"
+    return row["path"].replace(HOME, "~")
+
+
 def record_removal(d, row, before, by, what, ok, freed=None):
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     got = (before if freed is None else freed) if ok else 0
@@ -227,6 +242,8 @@ def record_removal(d, row, before, by, what, ok, freed=None):
            "class": row.get("class", ""), "measured_bytes": before, "reclaim_cmd": row.get("reclaim_cmd", ""),
            "decided_by": by, "decision": "reclaimed" if ok else "failed", "reclaimed_bytes": got,
            "removed_by": acting_session(), "reclaimed_at": now, "note": what}
+    if row.get("targets") is not None:
+        rec["targets"] = row["targets"]  # the worktrees dehydrate removed; `path` stays the ledger key
     with open(os.path.join(d, "ledger.jsonl"), "a") as f:
         f.write(json.dumps(rec) + "\n")
     return rec
@@ -289,16 +306,17 @@ def run_auto(d, execute):
             ledger.append(dec)
         before, what, succeeded = remove(row, execute, goal_gb=goal / 1e9)
         if not execute:
-            print(f"WOULD RECLAIM  {before/1e9:5.1f} GB  {path.replace(HOME, '~')}  ({by})  {what}")
+            print(f"WOULD RECLAIM  {before/1e9:5.1f} GB  {shown(row)}  ({by})  {what}")
             continue
         after = auto_classes.free_bytes(consume=False)
         freed = max(after - free, 0) if cls == "stale-worktrees" else None
         rec = record_removal(d, row, before, by, what, succeeded, freed)
-        free_log(d, {"event": "auto-reclaim", "class": cls, "path": path, "decided_by": by,
-                     "outcome": "done" if succeeded else "failed", "freed_bytes": rec["reclaimed_bytes"], "note": what[:300]})
+        free_log(d, dict({"event": "auto-reclaim", "class": cls, "path": path, "decided_by": by,
+                          "outcome": "done" if succeeded else "failed", "freed_bytes": rec["reclaimed_bytes"],
+                          "note": what[:300]}, **({"targets": rec["targets"]} if "targets" in rec else {})))
         done += succeeded
         failed += not succeeded
-        print(f"{'RECLAIMED' if succeeded else 'FAILED'}  {rec['reclaimed_bytes']/1e9:5.1f} GB  {path.replace(HOME, '~')}  ({by})  {what}")
+        print(f"{'RECLAIMED' if succeeded else 'FAILED'}  {rec['reclaimed_bytes']/1e9:5.1f} GB  {shown(row)}  ({by})  {what}")
     end = auto_classes.free_bytes(consume=False)
     if execute:
         free_log(d, {"event": "auto-run", "phase": "end", "done": done, "failed": failed,
@@ -352,7 +370,7 @@ def main():
         before, what, ok = remove(row, a.execute)
         freed += before if a.execute and ok else 0
         label = ("REMOVED" if ok else "FAILED") if a.execute else "WOULD REMOVE"
-        print(f"{label}  {before/1e9:5.1f} GB  {row['path'].replace(HOME, '~')}  ({reason}: {by})  {what}")
+        print(f"{label}  {before/1e9:5.1f} GB  {shown(row)}  ({reason}: {by})  {what}")
         if a.execute:
             record_removal(d, row, before, by, what, ok)
     if a.execute:
