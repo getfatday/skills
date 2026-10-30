@@ -76,9 +76,20 @@ process inside, a working/busy or interactive session bound to it. A session tha
 with it. Pressure mode closes no other session and leaves leftover dirs and main checkouts alone.
 The apply JSON carries `pressure: {target_gb, reached, free_checked_gb}`. Reaching the target and
 running out of candidates (`reached: false`) are both exit 0 (1 if an item was not done); neither is
-a pause. The disk floor still wins: under `disk_floor_gb` (default 2 GB) nothing runs and apply
-exits 3, because the archives are written to the same disk (snapshots and tarballs of changed and
-gitignored-real files, not node_modules and other tool output). `--only` is refused with `--pressure`.
+a pause. Pressure mode has no fixed floor (that floor stopped every item exactly when disk was lowest):
+each worktree goes only when the free space read for it covers its capture estimate (changed and
+untracked bytes for the raw tarball, gitignored-real bytes, and a bundle bound of unpushed commits'
+objects plus those changed bytes) plus 200 MB, because the archives are written to the same disk. An
+item that does not fit pauses the run (exit 3, the reason says how much it needs). Normal apply keeps
+the fixed `disk_floor_gb` (default 2 GB). `--only` is refused with `--pressure`.
+
+When `claude agents --json --all` does not answer (300 s, tried twice), plan and apply do not crash:
+no session closes and every worktree bound to a session or inside a job dir is held with reason
+"agents list unavailable"; the plan JSON carries `agents_unavailable`.
+
+Sparse-checkout worktrees are captured with their skip-worktree files intact (`git add -A --sparse`
+on a copy of the real index, git 2.34+), the sparse config is recorded as `worktree.sparse`, and
+rehydrate checks the tree out with the same cone or patterns.
 "Least recently active" is the newest of the worktree's dir, HEAD and reflog mtimes, its changed
 files' mtimes, and its bound sessions' activity; a session's "more than 24 h" is measured the same
 way (transcript, job state and timeline mtimes), not from when it started. Report how far it got

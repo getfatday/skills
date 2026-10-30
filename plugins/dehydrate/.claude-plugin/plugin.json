@@ -1,7 +1,7 @@
 {
   "name": "dehydrate",
   "description": "Close stale Claude Code sessions and git worktrees without losing work, and bring them back. Dehydrate snapshots each idle worktree (uncommitted, untracked, gitignored-real files, unpushed commits) into a local ref plus a git bundle, archives transcripts and job dirs, records a user-level manifest with what each session was about, then removes the worktree and closes the session with claude stop/rm. Rehydrate restores the worktree on its branch, restores swept transcripts and resumes. A bare /rehydrate opens a searchable picker (a mod pane) grouped by age, and a relaunched session shows up in claude agents under its name. Sessions that end with their branch merged are dehydrated automatically. A --pressure mode dehydrates least recently active worktrees one at a time until a free-disk target is met. Deterministic, stdlib only.",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "author": {
     "name": "getfatday"
   },

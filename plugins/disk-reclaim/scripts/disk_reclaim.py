@@ -93,9 +93,11 @@ def under(p, root):
 
 def load_census(d):
     try:
-        return json.load(open(os.path.join(d, "last-census.json")))["rows"]
+        with open(os.path.join(d, "last-census.json")) as fh:
+            rows = json.load(fh)["rows"]
     except Exception:
         return []
+    return auto_classes.current_rows(rows)  # a stale-worktrees row's dehydrate dir is resolved now, not as recorded
 
 
 def load_ledger(d):

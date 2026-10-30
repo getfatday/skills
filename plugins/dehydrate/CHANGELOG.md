@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.2.2
+
+- Fix: under `--pressure` the fixed `disk_floor_gb` check no longer blocks every item exactly when
+  disk is lowest (seen at 1.9 GB free: the pass paused before freeing anything). Each worktree now
+  goes when the free space read for it covers its capture estimate (raw overlay of changed and
+  untracked bytes, gitignored-real bytes, and a bundle bound from `rev-list --objects` of unpushed
+  commits plus the changed bytes) plus 200 MB; one that does not fit pauses the run with how much it
+  needs. Normal apply keeps the fixed floor.
+- Fix: `claude agents --json --all` gets a 300 s timeout (was 60 s) and one retry. When it still
+  fails, plan and apply no longer crash with `TimeoutExpired`: no session closes, every worktree bound
+  to a session or inside a job dir is held with reason "agents list unavailable", and the plan carries
+  `agents_unavailable`. A run that hit it does not wait for it again in its per-item re-checks.
+- Fix: sparse-checkout worktrees can be dehydrated. The temp-index capture used `read-tree HEAD` and
+  a plain `git add -A`, which failed ("outside of your sparse-checkout definition") and, with
+  `--sparse` alone, would have recorded every file outside the cone as deleted. It now starts from a
+  copy of the real index (skip-worktree bits kept) and runs `git add -A --sparse` (git 2.34+). The
+  sparse config is recorded as `worktree.sparse` and rehydrate restores it: `worktree add
+  --no-checkout`, `sparse-checkout set`, checkout, then `sparse-checkout reapply` after the staged
+  index comes back.
+
 ## 0.2.1
 
 Three data-safety and robustness fixes from the 2026-10-29 disk-pressure runs.

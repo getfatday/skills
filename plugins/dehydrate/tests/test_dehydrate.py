@@ -536,6 +536,42 @@ class DehydrateTests(unittest.TestCase):
         self.assertTrue(all(os.path.isdir(p) for p in f.wt.values()))
         self.assertFalse(os.path.exists(f.calls))
 
+    def test_pressure_floor_is_per_item(self):
+        """0.2.2: under --pressure the fixed disk_floor_gb gives way to capture estimate + 200 MB per item."""
+        f = self.f
+        cp = os.path.join(f.state, "config.json")
+        c = json.load(open(cp))
+        c["disk_floor_gb"] = 2
+        json.dump(c, open(cp, "w"))
+        # 0.2002 GiB (about 205 MiB) free: under the 2 GB floor, but room for a small item plus the margin
+        r = self.pressure_run("apply", "--yes", "--json", "--pressure", "--target-gb", "10", fake="0.2002")
+        res = json.loads(r.stdout)
+        self.assertIsNone(res["paused"], res["paused"])
+        self.assertTrue(any(w.get("removed") for w in res["worktrees"]), res["worktrees"])
+        # normal apply keeps the fixed floor (real free disk is far above 0 here, so prove it with a huge floor)
+        c["disk_floor_gb"] = 10 ** 6
+        json.dump(c, open(cp, "w"))
+        r = f.run("apply", "--yes", "--json", "--no-sessions", check=False)
+        self.assertEqual(r.returncode, 3)
+        self.assertIn("under floor", json.loads(r.stdout)["paused"])
+
+    def test_pressure_pauses_before_an_item_too_big_to_capture(self):
+        f = self.f
+        p = json.loads(self.pressure_run("plan", "--json", "--pressure", "--target-gb", "10").stdout)
+        first = p["pressure"]["order"][0]
+        st = os.stat(first)
+        with open(os.path.join(first, "big-untracked.bin"), "wb") as fh:
+            fh.write(os.urandom(10 * 2 ** 20))                     # 10 MiB to capture, twice (overlay + bundle)
+        os.utime(os.path.join(first, "big-untracked.bin"), (0, 0))  # keep its place in the order (oldest first)
+        os.utime(first, (st.st_atime, st.st_mtime))
+        r = self.pressure_run("apply", "--yes", "--json", "--pressure", "--target-gb", "10", fake="0.2002")
+        self.assertEqual(r.returncode, 3, r.stdout + r.stderr)
+        res = json.loads(r.stdout)
+        self.assertEqual(res["worktrees"], [])                       # paused before touching anything
+        self.assertIn("needs: about 20 MB", res["paused"])
+        self.assertIn("200 MB margin", res["paused"])
+        self.assertTrue(os.path.isdir(first))
+
     def test_pressure_flags_go_together(self):
         self.assertEqual(self.pressure_run("plan", "--pressure").returncode, 2)
         self.assertEqual(self.pressure_run("plan", "--target-gb", "5").returncode, 2)
@@ -1391,7 +1427,8 @@ class SafetyFixTests(unittest.TestCase):
         json.dump(agents, open(f.agents, "w"))
         st = os.path.join(f.home, "jobs", bid, "state.json")
         write(st, json.dumps({"state": state}))
-        touch_future(st, 30 - ended_days_before_now)
+        t = NOW - ended_days_before_now * 86400  # against the fixed NOW, however long the suite runs
+        os.utime(st, (t, t))
 
     def in_process(self, argv, **patches):
         import io
@@ -1431,15 +1468,16 @@ class SafetyFixTests(unittest.TestCase):
         open(f.agents, "w").write("not json")                    # unreadable roster: every job-dir tree is held
         a = self.actions(f.plan("--no-sessions"))
         self.assertEqual(a[done][0], "hold")
-        self.assertIn("could not be read", a[done][1])
+        self.assertIn("agents list unavailable", a[done][1])
         self.assertEqual(a[f.wt["clean"]][0], "dehydrate")       # trees outside the job dirs are not affected
 
     def test_pressure_holds_a_tree_touched_in_the_last_two_hours(self):
         f = self.f
         write(os.path.join(f.wt["clean"], "fresh.txt"), "just written\n")
-        touch_future(os.path.join(f.wt["clean"], "fresh.txt"), 30 - 0.01)         # a file changed 15 min ago
+        # relative to the fixed NOW, not the wall clock: a slow suite must not move these past NOW
+        os.utime(os.path.join(f.wt["clean"], "fresh.txt"), (NOW - 900, NOW - 900))  # a file changed 15 min ago
         logs = os.path.join(f.repo, ".git", "worktrees", "unpushed", "logs", "HEAD")
-        touch_future(logs, 30 - 1 / 24)                                           # HEAD moved an hour ago
+        os.utime(logs, (NOW - 3600, NOW - 3600))                                     # HEAD moved an hour ago
         r = f.run("plan", "--json", "--pressure", "--target-gb", "10", check=False)
         a = self.actions(json.loads(r.stdout))
         for name in ("clean", "unpushed"):
@@ -1549,3 +1587,94 @@ class SafetyFixTests(unittest.TestCase):
                or c[0] == "read-tree"}
         self.assertIn(("worktree", "add"), big)
         self.assertTrue(all(t == 3600 for t in big.values()), big)
+
+
+class AgentsTimeoutTests(unittest.TestCase):
+    """0.2.2: a slow `claude agents` is retried once, then treated as unavailable: plan and apply do not crash,
+    no session closes, and every session-bound or job-dir worktree is held."""
+
+    def setUp(self):
+        self.f = Fixture()
+
+    def tearDown(self):
+        self.f.cleanup()
+
+    def run_slow(self, *a):
+        f = self.f
+        log = os.path.join(f.root, "agents-calls.log")
+        env = dict(ENV, FAKE_AGENTS_SLEEP="30", FAKE_CLAUDE_LOG=log, DEHYDRATE_AGENTS_TIMEOUT_S="3")
+        cmd = [sys.executable, SCRIPT, *a, "--roots", f.src, "--now", str(NOW), "--claude-home", f.home,
+               "--claude-bin", FAKE_CLAUDE, "--state-dir", f.state]
+        r = subprocess.run(cmd, capture_output=True, text=True, env=env, cwd=f.root)
+        calls = [x for x in open(log).read().splitlines()] if os.path.exists(log) else []
+        return r, calls
+
+    def test_plan_and_apply_hold_instead_of_crashing(self):
+        f = self.f
+        job = os.path.join(f.home, "jobs", "b0000001", "tmp", "wt")
+        sh(f.repo, "git", "worktree", "add", "-q", "-b", "job-wt", job)
+        job = os.path.realpath(job)
+        r, calls = self.run_slow("plan", "--json")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual([c for c in calls if c.startswith("agents")], ["agents --json --all"] * 2)   # one retry
+        p = json.loads(r.stdout)
+        self.assertIn("agents list unavailable", p["agents_unavailable"])
+        self.assertEqual(p["sessions"], [])
+        a = {w["path"]: (w["action"], w["reason"]) for w in p["worktrees"]}
+        self.assertEqual(a[f.wt["dirty"]][0], "hold")                          # its transcript's cwd is inside
+        self.assertTrue(a[f.wt["dirty"]][1].startswith("agents list unavailable: bound to session"))
+        self.assertEqual(a[job][0], "hold")
+        self.assertTrue(a[job][1].startswith("agents list unavailable: inside the job dir"))
+        self.assertEqual(a[f.wt["clean"]][0], "dehydrate")                     # no session, not a job dir
+        r, calls = self.run_slow("apply", "--yes", "--json")
+        self.assertIn(r.returncode, (0, 1), r.stdout + r.stderr)
+        res = json.loads(r.stdout)
+        self.assertEqual(res["sessions"], [])
+        self.assertTrue(os.path.isdir(f.wt["dirty"]) and os.path.isdir(job))
+        self.assertFalse(os.path.isdir(f.wt["clean"]))                          # unbound work still goes
+        self.assertFalse(any(c.startswith(("stop", "rm")) for c in calls))
+
+
+class SparseCheckoutTests(unittest.TestCase):
+    """0.2.2: a sparse-checkout worktree is captured with its skip-worktree files intact (never as deletions),
+    its sparse config is recorded, and rehydrate brings the same sparse tree back."""
+
+    def setUp(self):
+        self.f = Fixture()
+
+    def tearDown(self):
+        self.f.cleanup()
+
+    def test_sparse_worktree_round_trip(self):
+        f = self.f
+        p = os.path.realpath(os.path.join(f.repo, ".claude", "worktrees")) + "/sparse"
+        sh(f.repo, "git", "worktree", "add", "-q", "-b", "wt-sparse", p)
+        write(os.path.join(p, "keep", "k.txt"), "k1\n")
+        write(os.path.join(p, "skip", "s.txt"), "outside the cone\n")
+        sh(p, "git", "add", "-A")
+        sh(p, "git", "commit", "-qm", "two dirs")
+        sh(p, "git", "sparse-checkout", "set", "--cone", "keep")
+        self.assertFalse(os.path.exists(os.path.join(p, "skip")))
+        write(os.path.join(p, "keep", "k.txt"), "k2 modified\n")
+        write(os.path.join(p, "keep", "st.txt"), "staged\n")
+        sh(p, "git", "add", "keep/st.txt")
+        write(os.path.join(p, "keep", "u.txt"), "untracked\n")
+        before = status_set(p)
+        r = f.run("apply", "--yes", "--json", "--no-sessions", "--only", "sparse", check=False)
+        res = json.loads(r.stdout)
+        self.assertTrue(res["worktrees"] and res["worktrees"][0].get("removed"), res)
+        self.assertFalse(os.path.exists(p))
+        rec = next(x for x in f.manifest() if x["worktree"]["path"] == p)
+        self.assertEqual(rec["worktree"]["sparse"], {"cone": True, "patterns": ["keep"]})
+        files = sh(f.repo, "git", "ls-tree", "-r", "--name-only", rec["snapshot"]["commit"]).split("\n")
+        self.assertIn("skip/s.txt", files)                          # kept, not recorded as deleted
+        self.assertIn("keep/u.txt", files)
+        r = f.run("rehydrate", rec["id"], "--json")
+        notes = json.loads(r.stdout)["notes"]
+        self.assertFalse([n for n in notes if "WARNING" in n], notes)
+        self.assertTrue(any("restored sparse-checkout" in n for n in notes), notes)
+        self.assertFalse(os.path.exists(os.path.join(p, "skip")))   # still outside the cone
+        self.assertIn("S skip/s.txt", sh(p, "git", "ls-files", "-t").split("\n"))
+        self.assertEqual(sh(p, "git", "sparse-checkout", "list"), "keep")
+        self.assertEqual(status_set(p), before)
+        self.assertEqual(open(os.path.join(p, "keep", "k.txt")).read(), "k2 modified\n")

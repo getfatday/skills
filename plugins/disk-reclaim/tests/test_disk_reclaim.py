@@ -318,6 +318,24 @@ class AutoModeTests(unittest.TestCase):
         self.assertEqual(last["targets"], ["/x/wt"])             # what dehydrate actually removed
         self.assertEqual([x.get("targets") for x in f.free_log() if x.get("class") == "stale-worktrees"], [["/x/wt"]])
 
+    def test_census_older_than_a_dehydrate_install_uses_the_newest(self):
+        """0.4.2: a census taken before a newer dehydrate was installed still delegates to the newest one."""
+        f = self.f
+        f.census()
+        base = os.path.dirname(f.dehydrate_dir)
+        src = open(os.path.join(f.dehydrate_dir, "scripts", "dehydrate.py")).read().replace('"0.2.10 "', '"0.2.11 "')
+        script(os.path.join(base, "0.2.11", "scripts", "dehydrate.py"), src)
+        newest = os.path.realpath(os.path.join(base, "0.2.11"))
+        with open(os.path.join(f.state, "last-census.json")) as fh:   # the census still names 0.2.10
+            self.assertIn(f.dehydrate_dir, [r["path"] for r in json.load(fh)["rows"]])
+        r = f.py("disk_reclaim.py", "--auto", "--execute", free="1")
+        self.assertNotIn("not the newest", r.stdout)
+        calls = [c for c in open(f.dehydrate_log).read().split("\n") if c]
+        self.assertEqual(calls, ["0.2.11 apply --yes --json --pressure --target-gb 20"])
+        rows = [x for x in f.ledger() if x.get("class") == "stale-worktrees"]
+        self.assertEqual({x["path"] for x in rows}, {newest})            # decision and outcome both
+        self.assertEqual(rows[-1]["decision"], "reclaimed")
+
     def test_dry_run_changes_nothing(self):
         f = self.f
         r = f.py("disk_reclaim.py", "--auto", free="1")

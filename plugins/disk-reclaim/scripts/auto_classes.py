@@ -339,6 +339,20 @@ def stale_worktrees_eligible(path):
     return True, f"delegated to dehydrate {os.path.basename(v)} apply --pressure (all of its holds apply)"
 
 
+def current_rows(rows):
+    """Census rows as of now. A stale-worktrees row names a dehydrate plugin dir, and a census is a snapshot that
+    can be hours old: one taken between two installs (0.2.0 and 0.2.1 landed minutes apart) names a version that
+    is no longer the newest, and its live re-check then refuses every run. So the dir is resolved again here by
+    the find_dehydrate rule, never taken from the census, a cache or the plugin registry."""
+    v, _ = find_dehydrate()
+    out = []
+    for r in rows:
+        if r.get("class") == "stale-worktrees" and v and r.get("reclaim_cmd") == "dehydrate-pressure":
+            r = dict(r, path=v)
+        out.append(r)
+    return out
+
+
 def stale_worktrees_rows(row):
     v, script = find_dehydrate()
     if not v:
