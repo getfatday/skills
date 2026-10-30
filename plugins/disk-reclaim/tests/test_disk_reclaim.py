@@ -78,14 +78,17 @@ class Fixture:
             f.write("0.001")
         base = os.path.join(self.home, ".claude", "plugins", "cache", "getfatday-skills", "dehydrate")
         self.dehydrate_log = os.path.join(self.root, "dehydrate-calls.log")
-        for v in ("0.1.2", "0.1.9", "0.1.10"):
+        for v in ("0.2.0", "0.2.9", "0.2.10"):
             script(os.path.join(base, v, "scripts", "dehydrate.py"), f"""#!/usr/bin/env python3
 import json, sys
 open({self.dehydrate_log!r}, "a").write("{v} " + " ".join(sys.argv[1:]) + "\\n")
+if sys.argv[1] == "plan":  # read-only: what the dry run lists
+    print(json.dumps({{"pressure": {{"order": ["/x/wt", "/x/wt2", "/x/wt3"], "estimated_stop_after": 2}}}}))
+    sys.exit(0)
 print(json.dumps({{"worktrees": [{{"path": "/x/wt", "ok": True, "removed": True}}], "sessions": [],
                   "paused": None, "pressure": {{"target_gb": 20, "reached": True, "free_checked_gb": 21}}}}))
 """)
-        self.dehydrate_dir = os.path.realpath(os.path.join(base, "0.1.10"))
+        self.dehydrate_dir = os.path.realpath(os.path.join(base, "0.2.10"))
         self.lsof_open = os.path.join(self.root, "lsof-open.txt")
         write(self.lsof_open, (self.jobs["j-open"] + "\n" + self.versions["1.0.0"] + "\n").encode())
         self.ps_out = os.path.join(self.root, "ps.txt")
@@ -190,8 +193,15 @@ class AutoClassTests(unittest.TestCase):
                          else rows[f.spool]["reclaim_cmd"], "rotate-gzip")
         dr = [r for r in rows.values() if r["class"] == "stale-worktrees"]
         self.assertEqual(len(dr), 1)
-        self.assertEqual(os.path.realpath(dr[0]["path"]), f.dehydrate_dir)  # 0.1.10 sorts after 0.1.9
+        self.assertEqual(os.path.realpath(dr[0]["path"]), f.dehydrate_dir)  # 0.2.10 sorts after 0.2.9
         self.assertEqual(dr[0]["reclaim_cmd"], "dehydrate-pressure")
+        # only a dehydrate older than 0.2.1 (no job-dir holds, no re-checks): never delegated to
+        base = os.path.dirname(f.dehydrate_dir)
+        for v in ("0.2.9", "0.2.10"):
+            shutil.rmtree(os.path.join(base, v))
+        dr = [r for r in f.census().values() if r["class"] == "stale-worktrees"]
+        self.assertEqual(dr[0]["reclaim_cmd"], "none")
+        self.assertIn("needs 0.2.1+", dr[0]["safety_basis"])
 
     def test_desktop_vm_is_report_only(self):
         f = self.f
@@ -297,24 +307,32 @@ class AutoModeTests(unittest.TestCase):
         f = self.f
         f.py("disk_reclaim.py", "--auto", "--execute", free="1")
         calls = open(f.dehydrate_log).read().split("\n")
-        self.assertEqual(calls[0], "0.1.10 apply --yes --json --pressure --target-gb 20")
+        self.assertEqual(calls[0], "0.2.10 apply --yes --json --pressure --target-gb 20")
         acts = [x["class"] for x in f.free_log() if x.get("event") == "auto-reclaim"]
         self.assertEqual(acts, ["hook-spool-rotation", "claude-cli-versions", "claude-job-scratch",
                                 "claude-job-scratch", "stale-worktrees"])
         last = [x for x in f.ledger() if x.get("class") == "stale-worktrees"][-1]
         self.assertEqual(last["decision"], "reclaimed")
         self.assertIn('"reached": true', last["note"])
+        self.assertEqual(last["path"], f.dehydrate_dir)          # still the ledger key the gate matches on
+        self.assertEqual(last["targets"], ["/x/wt"])             # what dehydrate actually removed
+        self.assertEqual([x.get("targets") for x in f.free_log() if x.get("class") == "stale-worktrees"], [["/x/wt"]])
 
     def test_dry_run_changes_nothing(self):
         f = self.f
         r = f.py("disk_reclaim.py", "--auto", free="1")
         self.assertIn("WOULD RECLAIM", r.stdout)
         self.assertIn("would run dehydrate", r.stdout)
+        line = next(x for x in r.stdout.splitlines() if "auto:stale-worktrees" in x)
+        self.assertIn("/x/wt, /x/wt2  (auto:stale-worktrees)", line)   # the plan's worktrees up to its stop
+        self.assertNotIn("/x/wt3", line)
+        self.assertNotIn("plugins/cache", line)                          # not the plugin dir
         self.assertTrue(os.path.exists(f.spool))
         self.assertTrue(os.path.exists(f.versions["1.0.1"]))
         self.assertEqual(f.ledger(), [])
         self.assertEqual(f.free_log(), [])
-        self.assertFalse(os.path.exists(f.dehydrate_log))
+        calls = [c for c in open(f.dehydrate_log).read().split("\n") if c]
+        self.assertEqual(calls, ["0.2.10 plan --json --pressure --target-gb 20"])   # read-only, never apply
         self.assertFalse(os.path.exists(os.path.join(f.state, "auto.lock")))   # not even the lock
 
     def test_nudge_help_is_inert(self):

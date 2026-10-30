@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.2.1
+
+Three data-safety and robustness fixes from the 2026-10-29 disk-pressure runs.
+
+- Fix: a worktree inside `~/.claude/jobs/<id>/` (real paths) is held while session `<id>` is
+  listed in `claude agents --json --all` and is not done, stopped or failed for at least
+  `auto_grace_minutes` (or its process is alive). The reason names the session, e.g. "inside the
+  job dir of working session 8e6abbd6 EGDS 2 Unified Issues". Holds used to look only at session
+  and process cwds, so `apply --pressure` removed job-scratch worktrees of a working session. The
+  hold also applies with `--no-sessions`, and an unreadable agents list holds every job-dir tree.
+- Fix: under `--pressure` a worktree whose files (dirty, untracked) or HEAD reflog changed in the
+  last 2 hours is held.
+- Fix: `apply` (every mode, auto included) re-reads `config.json` and rebuilds each item's holds
+  right before its capture and again right before its removal. Exclusions written while a run was
+  in progress used to be ignored because config and plan were read once at the start. A skipped
+  item is reported with its reason and does not fail the run; one captured and then held keeps
+  its snapshot and gets a `left-in-place` manifest event. Sessions, leftover dirs and main
+  checkouts are re-checked the same way.
+- Fix: git calls that check out, read or remove a whole tree (`worktree add`, `worktree remove`,
+  the snapshot checkout, `reset`, `read-tree`, the bundle fetch) get a 3600 s timeout instead of
+  120 s. A rehydrate that still times out unlocks and removes the partial checkout (it holds only
+  a fresh checkout; the work is in the snapshot), takes back a branch it created, prints what to
+  run next, and leaves the record un-rehydrated, instead of a traceback and a tree locked
+  "initializing".
+- A worktree locked "initializing" by git itself is reported as "interrupted checkout (git lock
+  'initializing' left by a killed worktree add); unlock with: git worktree unlock <path>" when no
+  git process is writing it. It is still held.
+
 ## 0.2.0
 
 - Rehydrate picker (a mod: `hooks/register.tsx`, named under `modules` in `hooks/hooks.json` next

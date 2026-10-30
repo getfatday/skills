@@ -10,8 +10,10 @@ or an unreadable session roster makes a row not eligible, never eligible.
                        not newer than it, not hard-linked elsewhere, and not used by a running process.
   claude-job-scratch   ~/.claude/jobs/<id>/tmp of a session the roster lists as not working/busy (or no
                        longer lists), with nothing modified in 24 h and nothing open. Only tmp/ goes.
-  stale-worktrees      delegated: the installed dehydrate plugin's `apply --pressure`, which keeps every
-                       one of its own holds. disk-reclaim never removes a worktree or session itself.
+  stale-worktrees      delegated: the installed dehydrate plugin's (0.2.1+) `apply --pressure`, which keeps
+                       every one of its own holds. disk-reclaim never removes a worktree or session itself.
+                       The ledger row's path is the plugin dir (the gate's key); printed lines and the
+                       outcome's `targets` name the worktrees (the dry run asks `plan --pressure --json`).
   claude-desktop-vm    report-only. Never auto; a human may decide it, and only while the app is closed.
 
 Settings are one file each in the state dir, like threshold-gb: auto (true/false, default true),
@@ -31,7 +33,7 @@ AUTO_CLASSES = ("hook-spool-rotation", "claude-cli-versions", "claude-job-scratc
 REPORT_ONLY = ("claude-desktop-vm",)
 ACTIVE_STATES = {"working", "busy", "running"}
 SCRATCH_MIN_BYTES = 10 * 1024 * 1024
-MIN_DEHYDRATE = (0, 1, 3)  # first dehydrate with --pressure
+MIN_DEHYDRATE = (0, 2, 1)  # first dehydrate that holds live sessions' job-dir trees and re-checks before acting
 
 
 def home():
@@ -324,7 +326,7 @@ def find_dehydrate():
         return None, "dehydrate plugin not installed"
     v = vers[-1]
     if version_key(os.path.basename(v)) < MIN_DEHYDRATE:
-        return None, f"installed dehydrate {os.path.basename(v)} predates --pressure (needs 0.1.3+)"
+        return None, f"installed dehydrate {os.path.basename(v)} predates the job-dir holds and pre-removal re-checks (needs 0.2.1+)"
     return v, os.path.join(v, "scripts", "dehydrate.py")
 
 
@@ -340,7 +342,7 @@ def stale_worktrees_eligible(path):
 def stale_worktrees_rows(row):
     v, script = find_dehydrate()
     if not v:
-        return [row("stale-worktrees", "dehydrate", -1, "evidence", script, "none", "install dehydrate 0.1.3+")]
+        return [row("stale-worktrees", "dehydrate", -1, "evidence", script, "none", "install dehydrate 0.2.1+")]
     est = 0
     try:
         plan = json.load(open(os.path.join(home(), ".claude", "dehydrated", "last-plan.json")))
@@ -352,27 +354,45 @@ def stale_worktrees_rows(row):
                 "rehydrate brings any worktree and session back")]
 
 
+def short(p):
+    return p.replace(home(), "~", 1) if p.startswith(home()) else p
+
+
+def pressure_targets(path, goal_gb):
+    """The worktrees dehydrate's read-only `plan --pressure` would take, in order, up to its estimated stop (all
+    of them when it expects not to reach the goal). None when the plan cannot be read."""
+    rc, out, _ = run([sys.executable, os.path.join(path, "scripts", "dehydrate.py"), "plan", "--json", "--pressure",
+                      "--target-gb", f"{goal_gb:g}"], timeout=1800)
+    try:
+        pr = json.loads(out)["pressure"]
+        order, est = list(pr["order"]), pr.get("estimated_stop_after")
+    except (ValueError, KeyError, TypeError):
+        return None
+    return order[:est] if est else order
+
+
 def run_dehydrate(path, goal_gb):
-    """Returns (ok, note). A held dehydrate lock is a skip, not a failure."""
+    """Returns (ok, note, worktree paths removed). A held dehydrate lock is a skip, not a failure."""
     ok, why = stale_worktrees_eligible(path)
     if not ok:
-        return False, why
+        return False, why, []
     script = os.path.join(path, "scripts", "dehydrate.py")
     # dehydrate measures statvfs("/"), this plugin the APFS container; the headroom absorbs the gap
     rc, out, err = run([sys.executable, script, "apply", "--yes", "--json", "--pressure", "--target-gb", f"{goal_gb:g}"],
                        timeout=6 * 3600)
     if "holds the lock" in (out + err):
-        return False, "skipped: another dehydrate run holds its lock"
+        return False, "skipped: another dehydrate run holds its lock", []
     try:
         res = json.loads(out)
     except ValueError:
-        return False, f"dehydrate rc={rc}: {(err or out).strip()[:300]}"
+        return False, f"dehydrate rc={rc}: {(err or out).strip()[:300]}", []
+    removed = [w["path"] for w in res.get("worktrees", []) if w.get("removed") and w.get("path")]
     done = sum(1 for w in res.get("worktrees", []) if w.get("removed"))
     bad = sum(1 for w in res.get("worktrees", []) if not w.get("ok"))
     closed = sum(1 for s in res.get("sessions", []) if s.get("ok"))
     note = (f"dehydrate rc={rc}: {done} worktree(s) dehydrated, {closed} session(s) closed, {bad} not done; "
             f"pressure={json.dumps(res.get('pressure'))}" + (f"; paused: {res['paused']}" if res.get("paused") else ""))
-    return rc in (0, 1, 3), note
+    return rc in (0, 1, 3), note, removed
 
 
 # ---------- dispatch ----------

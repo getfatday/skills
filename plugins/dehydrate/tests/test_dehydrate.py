@@ -1363,3 +1363,189 @@ class WorktreePathTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---- 0.2.1: job-dir holds, re-checks between items, big-tree timeouts (bugs found 2026-10-29)
+
+class SafetyFixTests(unittest.TestCase):
+    def setUp(self):
+        self.f = Fixture()
+        self.mod = load_module()
+
+    def tearDown(self):
+        self.f.cleanup()
+
+    def actions(self, plan):
+        return {w["path"]: (w["action"], w["reason"]) for w in plan["worktrees"]}
+
+    def add_wt(self, path, branch):
+        sh(self.f.repo, "git", "worktree", "add", "-q", "-b", branch, path)
+        return os.path.realpath(path)
+
+    def add_agent(self, bid, state, name, ended_days_before_now):
+        """A background session whose job dir was last written ended_days_before_now before NOW."""
+        f = self.f
+        agents = json.load(open(f.agents))
+        agents.append({"id": bid, "sessionId": f"aaaaaaaa-0000-0000-0000-0000{bid}", "name": name, "cwd": f.repo,
+                       "kind": "background", "state": state, "startedAt": int((time.time() - 40 * 86400) * 1000)})
+        json.dump(agents, open(f.agents, "w"))
+        st = os.path.join(f.home, "jobs", bid, "state.json")
+        write(st, json.dumps({"state": state}))
+        touch_future(st, 30 - ended_days_before_now)
+
+    def in_process(self, argv, **patches):
+        import io
+        from contextlib import redirect_stdout
+        from unittest import mock
+        buf = io.StringIO()
+        with contextlib.ExitStack() as st:
+            st.enter_context(mock.patch.dict(os.environ, ENV, clear=True))
+            for k, v in patches.items():
+                st.enter_context(mock.patch.object(self.mod, k, v))
+            st.enter_context(redirect_stdout(buf))
+            rc = self.mod.main(argv)
+        return rc, buf.getvalue()
+
+    def apply_argv(self, *extra):
+        f = self.f
+        return ["apply", "--yes", "--json", *extra, "--roots", f.src, "--agents-json", f.agents, "--now", str(NOW),
+                "--claude-home", f.home, "--claude-bin", f.claude, "--state-dir", f.state]
+
+    def test_job_dir_worktrees_are_held_for_live_sessions(self):
+        f = self.f
+        jobs = os.path.join(f.home, "jobs")
+        live = self.add_wt(os.path.join(jobs, "b0000002", "tmp", "typed", "verify-pp"), "verify-pp")  # working
+        done = self.add_wt(os.path.join(jobs, "b0000001", "tmp", "x", "worktree"), "job-done")       # done 30d
+        gone = self.add_wt(os.path.join(jobs, "zzzzzzzz", "tmp", "worktree"), "job-gone")            # not listed
+        self.add_agent("b0000009", "done", "Just finished", 0.001)                                    # ~1.5 min
+        grace = self.add_wt(os.path.join(jobs, "b0000009", "tmp", "worktree"), "job-grace")
+        for extra in ((), ("--no-sessions",)):
+            a = self.actions(f.plan(*extra))
+            self.assertEqual(a[live], ("hold", "inside the job dir of working session b0000002 Busy work"), extra)
+            self.assertEqual(a[done][0], "dehydrate", extra)
+            self.assertEqual(a[gone][0], "dehydrate", extra)
+            self.assertEqual(a[grace][0], "hold", extra)
+            self.assertIn("inside the job dir of done session b0000009 Just finished (ended", a[grace][1])
+        r = f.run("plan", "--json", "--pressure", "--target-gb", "10", check=False)
+        self.assertEqual(self.actions(json.loads(r.stdout))[live][0], "hold")
+        open(f.agents, "w").write("not json")                    # unreadable roster: every job-dir tree is held
+        a = self.actions(f.plan("--no-sessions"))
+        self.assertEqual(a[done][0], "hold")
+        self.assertIn("could not be read", a[done][1])
+        self.assertEqual(a[f.wt["clean"]][0], "dehydrate")       # trees outside the job dirs are not affected
+
+    def test_pressure_holds_a_tree_touched_in_the_last_two_hours(self):
+        f = self.f
+        write(os.path.join(f.wt["clean"], "fresh.txt"), "just written\n")
+        touch_future(os.path.join(f.wt["clean"], "fresh.txt"), 30 - 0.01)         # a file changed 15 min ago
+        logs = os.path.join(f.repo, ".git", "worktrees", "unpushed", "logs", "HEAD")
+        touch_future(logs, 30 - 1 / 24)                                           # HEAD moved an hour ago
+        r = f.run("plan", "--json", "--pressure", "--target-gb", "10", check=False)
+        a = self.actions(json.loads(r.stdout))
+        for name in ("clean", "unpushed"):
+            self.assertEqual(a[f.wt[name]][0], "hold", name)
+            self.assertIn("pressure: touched", a[f.wt[name]][1])
+        self.assertEqual(a[f.wt["recent"]][0], "dehydrate")                        # a day ago: still a candidate
+
+    def test_initializing_lock_reads_as_an_interrupted_checkout(self):
+        f = self.f
+        p = f.wt["clean"]
+        sh(f.repo, "git", "worktree", "lock", "--reason", "initializing", p)
+        a = self.actions(f.plan())
+        self.assertEqual(a[p], ("hold", "interrupted checkout (git lock 'initializing' left by a killed worktree "
+                                        f"add); unlock with: git worktree unlock {p}"))
+        self.assertEqual(a[f.wt["locked"]], ("hold", "locked (held by test)"))
+
+    def test_config_and_holds_are_read_again_between_items(self):
+        """Exclusions written while apply runs (and a lock taken) stop the items they match (2026-10-29 15:18)."""
+        f = self.f
+        seen = []
+        cfg_path = os.path.join(f.state, "config.json")
+
+        def hook(event, item):
+            if event != "item":
+                return
+            seen.append(item["path"])
+            if len(seen) == 2:                                    # after the first item, before the second
+                c = json.load(open(cfg_path))
+                c["exclude_globs"] = [item["path"]]
+                json.dump(c, open(cfg_path, "w"))
+            if len(seen) == 3:
+                sh(f.repo, "git", "worktree", "lock", "--reason", "owner is back", item["path"])
+        rc, out = self.in_process(self.apply_argv("--no-sessions"), test_hook=hook)
+        res = json.loads(out)
+        self.assertEqual(rc, 0, out)                              # a skip is not a failure
+        by = {w["path"]: w for w in res["worktrees"]}
+        first, second, third = seen[:3]
+        self.assertTrue(by[first]["removed"])
+        self.assertTrue(by[second]["skipped"])
+        self.assertIn(f"excluded by {second} (config.json re-read before capture)", by[second]["error"])
+        self.assertTrue(os.path.isdir(second))
+        self.assertTrue(by[third]["skipped"])
+        self.assertIn("locked (owner is back)", by[third]["error"])
+        self.assertTrue(os.path.isdir(third))
+        ids = {r["worktree"]["path"] for r in f.manifest()}
+        self.assertNotIn(second, ids)                             # nothing was captured for a skipped item
+        self.assertNotIn(third, ids)
+
+    def test_exclusion_written_during_capture_stops_the_removal(self):
+        f = self.f
+        cfg_path = os.path.join(f.state, "config.json")
+        hit = []
+
+        def hook(event, item):
+            if event == "captured" and not hit:
+                hit.append(item["path"])
+                c = json.load(open(cfg_path))
+                c["exclude_globs"] = [item["path"]]
+                json.dump(c, open(cfg_path, "w"))
+        rc, out = self.in_process(self.apply_argv("--no-sessions"), test_hook=hook)
+        res = json.loads(out)
+        w = next(x for x in res["worktrees"] if x["path"] == hit[0])
+        self.assertTrue(w["skipped"] and not w["removed"])
+        self.assertIn("captured as", w["error"])
+        self.assertIn("before removal", w["error"])
+        self.assertTrue(os.path.isdir(hit[0]))
+        evs = [json.loads(x) for x in open(os.path.join(f.state, "manifest.jsonl"))]
+        self.assertTrue(any(e.get("event") == "left-in-place" and e["id"] == w["id"] for e in evs))
+        self.assertFalse(any(e.get("event") == "removed" and e["id"] == w["id"] for e in evs))
+        self.assertTrue(any(x.get("removed") for x in res["worktrees"]))   # the other items went on
+
+    def test_rehydrate_timeout_removes_the_partial_checkout(self):
+        f = self.f
+        f.run("apply", "--yes", "--no-sessions", "--only", "clean")
+        rec = next(r for r in f.manifest() if r["worktree"]["path"] == f.wt["clean"])
+        real_git = self.mod.git
+        calls = []
+
+        def killed_add(cwd, *a, **k):
+            calls.append((a[:2], k.get("timeout")))
+            if a[:2] == ("worktree", "add"):
+                real_git(cwd, *a, **k)                            # what a killed add leaves: a registered tree...
+                real_git(cwd, "worktree", "lock", "--reason", "initializing", a[-2] if a[-1] == "wt-clean" else a[-1])
+                raise subprocess.TimeoutExpired(["git", "-C", cwd, *a], k.get("timeout"))   # ...locked "initializing"
+            return real_git(cwd, *a, **k)
+        argv = ["rehydrate", rec["id"], "--state-dir", f.state, "--claude-home", f.home, "--claude-bin", f.claude]
+        with self.assertRaises(SystemExit) as cm:
+            self.in_process(argv, git=killed_add)
+        msg = str(cm.exception.code)
+        self.assertIn("git worktree add timed out after 3600s", msg)
+        self.assertIn("Nothing is marked rehydrated", msg)
+        self.assertIn(f"rehydrate {rec['id']}", msg)
+        self.assertFalse(os.path.lexists(f.wt["clean"]))
+        self.assertNotIn(f.wt["clean"], sh(f.repo, "git", "worktree", "list"))
+        evs = [json.loads(x) for x in open(os.path.join(f.state, "manifest.jsonl"))]
+        self.assertFalse(any(e.get("event") == "rehydrated" and e["id"] == rec["id"] for e in evs))
+        # the retry works, and every whole-tree git call gets the long timeout
+        calls.clear()
+
+        def counting(cwd, *a, **k):
+            calls.append((a[:2], k.get("timeout")))
+            return real_git(cwd, *a, **k)
+        rc, _ = self.in_process(argv, git=counting)
+        self.assertFalse(rc)
+        self.assertTrue(os.path.isdir(f.wt["clean"]))
+        big = {c: t for c, t in calls if c in (("worktree", "add"), ("checkout", rec["snapshot"]["commit"]))
+               or c[0] == "read-tree"}
+        self.assertIn(("worktree", "add"), big)
+        self.assertTrue(all(t == 3600 for t in big.values()), big)

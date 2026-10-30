@@ -157,7 +157,7 @@ headroom-gb` (default 5):
    reads and lists the session as not working/busy (or no longer lists it), nothing inside changed in
    24 h, and `lsof +D` shows nothing open. Only `tmp/` is emptied.
 4. `stale-worktrees`: `dehydrate.py apply --yes --pressure --target-gb <target+headroom>` from the
-   newest installed dehydrate (0.1.3+). Dehydrate snapshots before it removes and keeps all its holds.
+   newest installed dehydrate (0.2.1+). Dehydrate snapshots before it removes and keeps all its holds.
 
 Rows appear only above a size floor, measured as space used on disk (`du`): job scratch 10 MB, a
 spool 100 MB unless it is already over the threshold, the desktop VM bundle

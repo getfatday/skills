@@ -37,7 +37,10 @@ with `python3 scripts/dehydrate.py config set auto_on_close false`.
 
 Disk pressure: `dehydrate.py apply --yes --pressure --target-gb 20` ignores the idle window and
 dehydrates worktrees one at a time, least recently active first, until 20 GB are free, with every
-hold still in force. disk-reclaim's automatic mode calls exactly this.
+hold still in force, plus two of its own: a worktree inside a live session's job dir
+(`~/.claude/jobs/<id>/`) and one touched in the last 2 hours. Apply re-reads `config.json` and every
+hold right before each capture and each removal, so an exclusion added mid-run is honoured.
+disk-reclaim's automatic mode calls exactly this.
 
 Script: `scripts/dehydrate.py` (stdlib only, `--help` on every subcommand).
 Mod: `hooks/register.tsx` (named under `modules` in `hooks/hooks.json`, beside the classic

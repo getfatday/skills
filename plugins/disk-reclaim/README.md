@@ -46,8 +46,11 @@ in a fixed order until free space reaches `target-gb + headroom-gb` (default 5) 
    the target of `~/.local/bin/claude`, not newer than it, and not used by any running process.
 3. `claude-job-scratch`: `~/.claude/jobs/<id>/tmp` (largest first) of sessions that are not
    working or busy, with nothing modified in 24 hours and nothing open. Only `tmp/` goes.
-4. `stale-worktrees`: delegated to the dehydrate plugin (0.1.3 or later), `apply --pressure`,
-   which snapshots each worktree before removing it and keeps every one of its holds.
+4. `stale-worktrees`: delegated to the dehydrate plugin (0.2.1 or later), `apply --pressure`,
+   which snapshots each worktree before removing it and keeps every one of its holds (live
+   sessions' job dirs, trees touched in the last 2 hours, exclusions re-read before each removal).
+   The dry run names the worktrees dehydrate's pressure plan would take; the ledger outcome lists
+   the ones it removed under `targets`.
 
 It never touches the Claude desktop VM bundle (`claude-desktop-vm`, report-only) or anything else.
 Every action is a ledger decision `auto:<class>` plus its outcome, and a line in `free-log.jsonl`;

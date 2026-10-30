@@ -132,7 +132,7 @@
     {
       "name": "disk-reclaim",
       "source": "./plugins/disk-reclaim",
-      "description": "Recover disk space on a macOS developer laptop without losing anyone's work: read the APFS container, census every waste class read-only, ask the other live Claude sessions what is safe (KEEP/SAFE/UNKNOWN), let the human decide the rest, reclaim through a ledger-gated executor, record. Automatic mode under a free-space target: spool rotation, old Claude CLI versions, idle job scratch, then dehydrate --pressure. SessionStart nudge + detached census.",
+      "description": "Recover disk space on a macOS developer laptop without losing anyone's work: read the APFS container, census every waste class read-only, ask the other live Claude sessions what is safe (KEEP/SAFE/UNKNOWN), let the human decide the rest, reclaim through a ledger-gated executor, record. Automatic mode under a free-space target: spool rotation, old Claude CLI versions, idle job scratch, then dehydrate --pressure (0.2.1+; the dry run lists the worktrees its plan would take). SessionStart nudge + detached census.",
       "author": {
         "name": "getfatday"
       },
@@ -168,7 +168,7 @@
     {
       "name": "dehydrate",
       "source": "./plugins/dehydrate",
-      "description": "Close stale Claude Code sessions and git worktrees without losing work, and bring them back. Dehydrate snapshots each idle worktree into refs/dehydrated/<id> plus a git bundle and byte-exact tarballs, archives transcripts, writes a user-level manifest, then removes the worktree and closes the session. Rehydrate restores it exactly and relaunches it with claude --bg --resume; a bare /rehydrate opens a searchable picker pane (a mod) grouped by age. Sessions that end with their branch merged are dehydrated automatically (auto_on_close). --pressure frees disk to a target, least recently active first. SessionStart stale-session nudge. Stdlib only.",
+      "description": "Close stale Claude Code sessions and git worktrees without losing work, and bring them back. Dehydrate snapshots each idle worktree into refs/dehydrated/<id> plus a git bundle and byte-exact tarballs, archives transcripts, writes a user-level manifest, then removes the worktree and closes the session. Rehydrate restores it exactly and relaunches it with claude --bg --resume; a bare /rehydrate opens a searchable picker pane (a mod) grouped by age. Sessions that end with their branch merged are dehydrated automatically (auto_on_close). --pressure frees disk to a target, least recently active first, never taking a live session's job-dir worktree or one touched in the last 2 hours; apply re-reads config and every hold before each capture and removal. SessionStart stale-session nudge. Stdlib only.",
       "author": {
         "name": "getfatday"
       },
