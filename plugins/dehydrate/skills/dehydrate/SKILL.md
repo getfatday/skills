@@ -84,6 +84,44 @@ files' mtimes, and its bound sessions' activity; a session's "more than 24 h" is
 way (transcript, job state and timeline mtimes), not from when it started. Report how far it got
 and what is still held.
 
+## Automatic dehydrate on close
+
+With `auto_on_close` (on by default) a session whose work is merged is dehydrated without anyone
+running `/dehydrate`, so it lands in the manifest and the rehydrate picker.
+
+- **When.** Every SessionStart runs the detached, niced refresh, which first sweeps
+  `claude agents` (at most once per `auto_sweep_minutes`, default 10). A background session that
+  ended `done` or `failed` at least `auto_grace_minutes` ago (default 10) is a candidate. A
+  `claude stop` from the agents list is caught by the next sweep. The mod also kicks
+  `D auto --session <id>` when a session ends (`/exit`, a signal, logout, a closed terminal),
+  which waits for the process to exit and needs no grace period. A kick that meets another run
+  (it waits up to 2 minutes for the lock) is queued in `auto-pending/` and logged `deferred`; the
+  next run, or the next SessionStart sweep, takes it.
+- **"Has merges on it"**, judged on commits only. The session's cwd is a linked worktree on a
+  named branch that is not the remote default branch. After a fetch of the default branch, the
+  branch is contained in it and still holds commits of its own (a branch whose own commit was
+  reset away does not count), or merging it changes nothing and the files it changes are already
+  there (a squash or rebase merge; a commit plus its revert, or an extra empty commit, is not
+  proof), or `gh pr list -R <origin>` shows a PR from it merged into the default branch at exactly
+  its HEAD. Any error or timeout means not merged. Uncommitted and untracked files are allowed because
+  the snapshot keeps them (`auto_require_clean: true` refuses them).
+- **Never.** Unmerged work, a live session (a pid, or state working or blocked), an interactive
+  session open in the worktree, this session, a main checkout or the default branch, a worktree
+  shared with a session that is not itself ready, anything a plan hold covers (locked, excluded,
+  conflicts, submodules, nested repos, caps), free disk under the floor, and a session already
+  dehydrated. A session with no worktree is never auto-dehydrated. A session brought back with
+  rehydrate is left alone until it runs and ends again (its transcript or job state newer than the
+  rehydration), so restoring a merged worktree to look at it does not lose it at the next sweep.
+- **Audit.** Every decision is a line in `~/.claude/dehydrated/auto.log` (session, name,
+  `dehydrated` or `refused`, reason). Read it to answer "why wasn't X dehydrated". Records it
+  wrote carry an `auto` block. `D auto --dry-run` prints what a sweep would do and changes
+  nothing. `D auto --status` says whether auto is on, the last sweep and the last decision.
+- **Off switch**: `D config set auto_on_close false` (writes `$DEHYDRATE_HOME/config.json` or
+  `~/.claude/dehydrated/config.json`, keeps other keys, checks the type). A value of the wrong type
+  (`"false"` in quotes) is a config error, which turns auto off, and `auto --dry-run`, `auto
+  --status`, `D config` and the nudge say so, as they do for a key this version does not know.
+  The first SessionStart nudge after the upgrade says once that auto is on and how to turn it off.
+
 ## What the rules protect
 
 - **Active means kept**: a session or worktree touched in the last `--days` days, a session in
@@ -108,11 +146,17 @@ and what is still held.
 
 ## Tuning
 
-`~/.claude/dehydrated/config.json` overrides defaults: `days`, `roots` (default `["~/src"]`),
+`~/.claude/dehydrated/config.json` (or `$DEHYDRATE_HOME/config.json`) overrides defaults. Change
+it with `D config set <key> <value>` (JSON values, type-checked; `D config` lists every key with
+its value): `days`, `roots` (default `["~/src"]`),
 `exclude_globs`, the caps (`untracked_cap_mb`, `ignored_cap_mb`, `orphan_cap_mb`), `disk_floor_gb`,
-`nudge_cooldown_hours`, and `auto_apply`. The plugin's SessionStart hook prints one DEHYDRATE line
-at most once a day when the cached plan has work, and refreshes that cache in the background.
-With `"auto_apply": true` the background refresh also applies, which makes cleanup fully
-passive. It is off by default, and you turn it on only when the user asks for that.
+`nudge_cooldown_hours`, `auto_apply`, and the auto-on-close keys: `auto_on_close` (default
+true), `auto_grace_minutes` (10), `auto_sweep_minutes` (10), `auto_use_gh` (true, false keeps
+the merge check to git), `auto_fetch_timeout_s` (30) and `auto_require_clean` (false). The
+plugin's SessionStart hook prints one DEHYDRATE line at most once a day when the cached plan has
+work, and refreshes that cache in the background. With `"auto_apply": true` the background
+refresh also applies the whole idle plan, which makes cleanup fully passive. `auto_apply` is a
+separate switch from `auto_on_close`. It stays off by default, and you turn it on only when the
+user asks for that.
 
 See `references/storage.md` for the manifest fields and archive layout.
