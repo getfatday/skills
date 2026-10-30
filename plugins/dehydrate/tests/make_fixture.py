@@ -16,7 +16,7 @@ os.makedirs(os.path.join(f.root, "bin"))
 os.symlink(f.claude, os.path.join(f.root, "bin", "claude"))
 env = {"PATH": os.path.join(f.root, "bin") + ":" + os.environ["PATH"],"DEHYDRATE_ROOTS": f.src, "DEHYDRATE_AGENTS_JSON": f.agents, "DEHYDRATE_NOW": str(T.NOW),
        "CLAUDE_CONFIG_DIR": f.home, "DEHYDRATE_CLAUDE_BIN": f.claude, "DEHYDRATE_HOME": f.state,
-       "GIT_CONFIG_GLOBAL": "/dev/null"}
+       "GIT_CONFIG_GLOBAL": "/dev/null", "DEHYDRATE_GH_BIN": T.FAKE_GH}
 info = {"root": f.root, "repo": f.repo, "worktrees": f.wt, "hermes": f.hermes, "orphan": f.orphan,
         "calls_log": f.calls, "env": env, "sessions": f.sessions, "unpushed_sha": f.unpushed_sha,
         "main_sha": f.main_sha}

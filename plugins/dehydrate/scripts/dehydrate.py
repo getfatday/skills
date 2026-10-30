@@ -11,6 +11,11 @@ Subcommands
   rehydrate  recreate a dehydrated worktree (branch, dirty state, ignored files) and its sessions.
   nudge      SessionStart hook: one line when the cached plan has work, throttled. Never fails.
   refresh    write <state>/last-plan.json (what the nudge reads). --detach to run in background.
+             With auto_on_close it first runs the auto sweep (at most once per auto_sweep_minutes).
+  auto       dehydrate ended sessions whose worktree branch is merged into the remote default branch.
+             No --session: sweep `claude agents`. --session SID: that one session (the mod's session.end).
+             --status: is it on, the last sweep and decision.
+  config     show the effective settings, or get/set/unset one key in <state>/config.json (type-checked).
 
 Everything it decides is deterministic: the same census and the same --now give the same plan.
 
@@ -19,7 +24,9 @@ Storage (user level, one place for every repo)
   <state>/manifest.jsonl     append-only event log, one JSON object per line
   <state>/index.md           human-readable view, regenerated from the manifest
   <state>/archive/<id>/      snapshot.bundle, ignored.tar.gz, transcripts/*.jsonl.gz, job.tar.gz
-  <state>/config.json        optional overrides (days, roots, exclude_globs, caps, auto_apply)
+  <state>/config.json        optional overrides (days, roots, exclude_globs, caps, auto_apply, auto_*)
+  <state>/auto.log           JSONL, one line per auto decision (why a session was or was not auto-dehydrated)
+  <state>/agents-cache.json  last good `claude agents --json` listing (list --picker falls back to it)
 
 A worktree snapshot is a commit built on a temporary index (tracked changes, staged changes and
 untracked files; HEAD as parent) stored at refs/dehydrated/<id> in its repo and in a git bundle in
@@ -38,6 +45,7 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -66,6 +74,13 @@ DEFAULTS = {
     "nudge_cooldown_hours": 24,
     "refresh_after_hours": 6,
     "auto_apply": False,
+    # auto: dehydrate a session and its worktree once it has ended and its branch is merged (DESIGN 6)
+    "auto_on_close": True,
+    "auto_grace_minutes": 10,     # a swept session must have ended at least this long ago
+    "auto_sweep_minutes": 10,     # minimum gap between SessionStart sweeps
+    "auto_use_gh": True,          # allow the gh merged-PR check; False = git only
+    "auto_fetch_timeout_s": 30,
+    "auto_require_clean": False,  # True: a dirty or untracked tree is never auto-dehydrated
     "regenerable": {
         # Only names that are always tool output. Ambiguous ones (build, dist, out, target, .cache,
         # *.log) are archived like any other gitignored file, subject to ignored_cap_mb.
@@ -97,20 +112,64 @@ def claude_home(args=None):
                               or "~/.claude")
 
 
+EXTRA_KEYS = {"workers": 8}  # read with a default, not in DEFAULTS (thread pool size)
+
+
+def config_type_error(k, v):
+    """Why value v does not fit key k (None when it fits). Types follow DEFAULTS; a bool is never a number."""
+    want = DEFAULTS.get(k, EXTRA_KEYS.get(k))
+    if isinstance(want, bool):
+        return None if isinstance(v, bool) else f"{k} must be true or false (got {json.dumps(v)})"
+    if isinstance(want, (int, float)):
+        return None if isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0 else \
+            f"{k} must be a number of zero or more (got {json.dumps(v)})"
+    if isinstance(want, list):
+        return None if isinstance(v, list) and all(isinstance(x, str) for x in v) else \
+            f"{k} must be a list of strings (got {json.dumps(v)})"
+    if isinstance(want, dict):
+        return None if isinstance(v, dict) else f"{k} must be an object (got {json.dumps(v)})"
+    return None
+
+
 def load_config(sd):
+    """DEFAULTS with config.json merged over them. A value of the wrong type keeps its default and sets
+    `_config_error`, which turns auto off (so `"auto_on_close": "false"` is off, never on). Keys this version
+    does not know are kept in `_config_unknown`, for `auto --dry-run`, `auto --status`, `config` and `nudge`."""
     cfg = json.loads(json.dumps(DEFAULTS))
     p = os.path.join(sd, "config.json")
     if os.path.isfile(p):
         try:
             user = json.load(open(p))
+            if not isinstance(user, dict):
+                raise ValueError("config.json must hold one JSON object")
+            errors, unknown = [], []
             for k, v in user.items():
-                if isinstance(v, dict) and isinstance(cfg.get(k), dict):
+                if k not in DEFAULTS and k not in EXTRA_KEYS:
+                    unknown.append(k)
+                    continue
+                why = config_type_error(k, v)
+                if why:
+                    errors.append(why)
+                elif isinstance(v, dict) and isinstance(cfg.get(k), dict):
                     cfg[k].update(v)
                 else:
                     cfg[k] = v
+            if errors:
+                cfg["_config_error"] = "; ".join(errors)
+            if unknown:
+                cfg["_config_unknown"] = sorted(unknown)
         except Exception as e:  # a broken config must not break a SessionStart hook
             cfg["_config_error"] = str(e)
     return cfg
+
+
+def config_warnings(cfg):
+    out = []
+    if cfg.get("_config_error"):
+        out.append(f"config error, auto is off until it is fixed: {cfg['_config_error']}")
+    if cfg.get("_config_unknown"):
+        out.append(f"config keys this version does not know (typo?): {', '.join(cfg['_config_unknown'])}")
+    return out
 
 
 def git(cwd, *a, env=None, check=False, text=True, timeout=120):
@@ -192,6 +251,8 @@ def excluded(path, cfg):
 # ---------------------------------------------------------------- sessions
 
 def load_agents(args):
+    if getattr(args, "_agents", None) is not None:
+        return args._agents
     if args.agents_json:
         return json.load(open(args.agents_json))
     r = subprocess.run([args.claude_bin, "agents", "--json", "--all"], capture_output=True, text=True,
@@ -254,7 +315,7 @@ NOISE = re.compile(r"<(system-reminder|command-[a-z]+|local-command-[a-z]+|paste
 
 def describe_transcript(path):
     """Deterministic summary fields from a transcript: titles, first human prompt, last assistant text."""
-    out = {"title": None, "first_prompt": None, "last_text": None, "git_branch": None}
+    out = {"title": None, "first_prompt": None, "last_text": None, "git_branch": None, "agent_name": None}
     try:
         with open(path, "rb") as f:
             for line in f:
@@ -271,6 +332,8 @@ def describe_transcript(path):
                     out["title"] = o["customTitle"]
                 elif t == "ai-title" and o.get("aiTitle") and not out["title"]:
                     out["title"] = o["aiTitle"]
+                elif t == "agent-name" and o.get("agentName"):
+                    out["agent_name"] = o["agentName"]  # the last one wins: it tracks renames
                 elif t == "user" and not out["first_prompt"] and not o.get("isSidechain") \
                         and o.get("origin", {}).get("kind", "human") == "human":
                     txt = NOISE.sub(" ", _text((o.get("message") or {}).get("content"))).strip()
@@ -305,12 +368,19 @@ def session_rows(args, cfg, tidx, now):
             if p and os.path.isfile(p):
                 acts.append(os.path.getmtime(p))
         last = max(acts)
+        st = {}
+        with contextlib.suppress(Exception):  # agents rows never carry worktreePath (2.1.312); the job's state.json does
+            st = json.load(open(os.path.join(jobd, "state.json"))) if jobd else {}
+        st = st if isinstance(st, dict) else {}
+        wtp = a.get("worktreePath") or st.get("worktreePath")
         row = {"bg_id": bid, "session_id": sid, "name": a.get("name") or "", "cwd": a.get("cwd") or "",
                "kind": a.get("kind") or "", "state": state, "pid": a.get("pid"),
                "last_activity": last, "idle_days": round((now - last) / 86400, 2),
                "transcript": t["path"] if t else None, "project_dir": t["project_dir"] if t else None,
                "job_dir": jobd if jobd and os.path.isdir(jobd) else None,
-               "worktree_path": a.get("worktreePath"),
+               "worktree_path": os.path.realpath(wtp) if wtp else None,
+               "worktree_branch": a.get("worktreeBranch") or st.get("worktreeBranch"),
+               "intent": st.get("intent") if isinstance(st.get("intent"), str) else None,
                "rcwd": os.path.realpath(a["cwd"]) if a.get("cwd") else None}
         if sid and (sid == me_sid) or (bid and bid == me_job):
             row.update(action="keep", reason="this session")
@@ -1062,6 +1132,8 @@ def archive_session(s, archive, cfg, args):
     if tp and os.path.isfile(tp):
         d = describe_transcript(tp)
         info.update(d)
+        if not info.get("name") and d.get("agent_name"):
+            info["name"] = d["agent_name"]
         out = os.path.join(archive, "transcripts", os.path.basename(tp) + ".gz")
         with open(tp, "rb") as fi, gzip.open(out, "wb") as fo:
             shutil.copyfileobj(fi, fo)
@@ -1073,6 +1145,8 @@ def archive_session(s, archive, cfg, args):
         if h.hexdigest() != src:
             raise RuntimeError(f"transcript copy mismatch for {s['session_id']}")
         info.update(transcript_copy=out, transcript_sha256=src)
+    if not info.get("first_prompt") and s.get("intent"):
+        info["first_prompt"] = re.sub(r"\s+", " ", s["intent"])[:300]  # transcript missing: the job's intent
     jd = s.get("job_dir")
     if jd and os.path.isdir(jd):
         out = os.path.join(archive, f"job-{os.path.basename(jd)}.tar.gz")
@@ -1096,13 +1170,15 @@ def describe(sessions, branch, path):
 
 # ---------------------------------------------------------------- apply
 
+class LockHeld(SystemExit):
+    pass
+
+
 @contextlib.contextmanager
-def run_lock(sd):
-    f = open(os.path.join(sd, ".lock"), "w")
-    try:
-        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        raise SystemExit("another dehydrate run holds the lock; try again when it finishes")
+def run_lock(sd, wait_s=0):
+    f = take_lock(os.path.join(sd, ".lock"), wait_s)
+    if f is None:
+        raise LockHeld("another dehydrate run holds the lock; try again when it finishes")
     try:
         yield
     finally:
@@ -1113,7 +1189,7 @@ def run_lock(sd):
 def rid_for(label, key, now):
     """Stable for one run: the same item in the same plan gets the same id."""
     h = hashlib.sha256(f"{key}\0{now}".encode()).hexdigest()[:6]
-    day = dt.datetime.fromtimestamp(now).strftime("%Y%m%d")
+    day = dt.datetime.fromtimestamp(now, dt.timezone.utc).strftime("%Y%m%d")  # the date `at` (UTC) shows
     return f"{day}-{slugify(label, 32)}-{h}"
 
 
@@ -1150,6 +1226,12 @@ def apply_plan(args, cfg, plan, sd):
     res = {"worktrees": [], "sessions": [], "mains": [], "orphans": [], "pruned": [], "paused": None,
            "df_before_gb": round(free_gb(), 2), "pressure": None}
     now = plan["now"]
+    # Records carry the plan's clock, the one their ids are dated by: under --now / DEHYDRATE_NOW (tests,
+    # evals) `at` is that time plus the time apply has taken, else the wall clock.
+    clock_off = (args.now - time.time()) if getattr(args, "now", None) else 0.0
+
+    def stamp():
+        return iso(time.time() + clock_off)
     by_sid = {s["session_id"]: s for s in plan["sessions"] if s["session_id"]}
     tidx = transcript_index(claude_home(args))
     host = socket.gethostname()
@@ -1189,7 +1271,8 @@ def apply_plan(args, cfg, plan, sd):
             for sid in w.get("sessions", []):
                 s = by_sid.get(sid) or {"session_id": sid, "transcript": (tidx.get(sid) or {}).get("path"),
                                         "project_dir": (tidx.get(sid) or {}).get("project_dir"),
-                                        "cwd": (tidx.get(sid) or {}).get("cwd")}
+                                        "cwd": (tidx.get(sid) or {}).get("cwd"),
+                                        "name": (getattr(args, "_names", None) or {}).get(sid)}
                 sess.append(archive_session(s, archive, cfg, args))
             msg = (f"dehydrate {rid}\n\nworktree: {w['path']}\nbranch: {w['branch'] or '(detached)'}\n"
                    f"sessions: {', '.join(w.get('sessions', [])) or 'none'}\n")
@@ -1202,7 +1285,7 @@ def apply_plan(args, cfg, plan, sd):
                 if tot > cfg["ignored_cap_mb"] * 2 ** 20:
                     raise RuntimeError(f"gitignored real files total {tot // 2**20} MB over cap; holding")
                 itar = tar_paths(w["path"], [r for r, _ in ign], os.path.join(archive, "ignored.tar.gz"))
-            rec = {"event": "dehydrated", "id": rid, "kind": "worktree", "at": iso(time.time()), "host": host,
+            rec = {"event": "dehydrated", "id": rid, "kind": "worktree", "at": stamp(), "host": host,
                    "repo": {"path": w["repo"], "origin": w["origin"]},
                    "worktree": {"path": w["path"], "branch": w["branch"], "head": w["head"],
                                 "dirty_count": w["facts"]["dirty_count"], "untracked_count": w["facts"]["untracked_count"],
@@ -1210,6 +1293,8 @@ def apply_plan(args, cfg, plan, sd):
                    "snapshot": snap, "raw": raw, "ignored": itar, "sessions": sess, "size_kb": w.get("size_kb"),
                    "description": describe(sess, w["branch"], w["path"]), "archive": archive, "removed": False,
                    "idle_days": w["idle_days"]}
+            if plan.get("auto"):
+                rec["auto"] = plan["auto"]
             append_manifest(sd, rec)  # recorded BEFORE anything is removed; a failed write removes nothing
         except Exception as e:
             out.update(ok=False, error=str(e)[:400])
@@ -1229,7 +1314,7 @@ def apply_plan(args, cfg, plan, sd):
         else:
             out.update(ok=True, removed=True, description=rec["description"])
             with contextlib.suppress(Exception):
-                append_manifest(sd, {"event": "removed", "id": rid, "at": iso(time.time())})
+                append_manifest(sd, {"event": "removed", "id": rid, "at": stamp()})
         res["worktrees"].append(out)
 
     def do_session(s, removed_paths, wrow_by_path):
@@ -1242,17 +1327,19 @@ def apply_plan(args, cfg, plan, sd):
         os.makedirs(archive, exist_ok=True)
         try:
             info = archive_session(s, archive, cfg, args)
-            if s.get("worktree_path") and s["worktree_path"] not in removed_paths:
+            if s.get("worktree_path") and s["worktree_path"] not in removed_paths and os.path.isdir(s["worktree_path"]):
                 raise RuntimeError("session owns a Claude-managed worktree that was not captured; left open")
             linked = next((o["id"] for o in res["worktrees"] if wt and o["path"] == wt and o.get("removed")), None)
             repo_path = (wrow_by_path.get(wt) or {}).get("repo") or \
                 (gout(s["cwd"], "rev-parse", "--show-toplevel") if s["cwd"] and os.path.isdir(s["cwd"]) else None)
-            rec = {"event": "dehydrated", "id": rid, "kind": "session", "at": iso(time.time()), "host": host,
+            rec = {"event": "dehydrated", "id": rid, "kind": "session", "at": stamp(), "host": host,
                    "repo": {"path": repo_path},
                    "worktree": {"path": wt, "branch": (wrow_by_path.get(wt) or {}).get("branch")} if wt else None,
                    "linked_worktree_id": linked, "sessions": [info], "archive": archive,
                    "description": describe([info], None, s["cwd"] or ""), "removed": False,
                    "idle_days": s["idle_days"]}
+            if plan.get("auto"):
+                rec["auto"] = plan["auto"]
             append_manifest(sd, rec)
         except Exception as e:
             shutil.rmtree(archive, ignore_errors=True)
@@ -1264,7 +1351,7 @@ def apply_plan(args, cfg, plan, sd):
             closed = {"closed": False, "steps": [{"cmd": "stop/rm", "rc": -1, "out": f"{e.__class__.__name__}: {e}"}]}
         if closed["closed"]:
             with contextlib.suppress(Exception):
-                append_manifest(sd, {"event": "removed", "id": rid, "at": iso(time.time()), "close": closed})
+                append_manifest(sd, {"event": "removed", "id": rid, "at": stamp(), "close": closed})
             res["sessions"].append({"bg_id": s["bg_id"], "id": rid, "ok": True, "name": s.get("name")})
         else:
             res["sessions"].append({"bg_id": s["bg_id"], "id": rid, "ok": False, "name": s.get("name"),
@@ -1278,7 +1365,7 @@ def apply_plan(args, cfg, plan, sd):
         os.makedirs(archive, exist_ok=True)
         try:
             t = tar_tree(o["path"], os.path.join(archive, "tree.tar.gz"), cfg, cfg["orphan_cap_mb"] * 2 ** 20)
-            rec = {"event": "dehydrated", "id": rid, "kind": "orphan", "at": iso(time.time()), "host": host,
+            rec = {"event": "dehydrated", "id": rid, "kind": "orphan", "at": stamp(), "host": host,
                    "repo": {"path": o["repo"], "origin": o["origin"]}, "worktree": {"path": o["path"], "branch": None},
                    "tree_tar": t, "archive": archive, "size_kb": o.get("size_kb"), "removed": False,
                    "description": f"unregistered dir {os.path.basename(o['path'])} under {short(o['repo'])}/.claude/worktrees"}
@@ -1290,7 +1377,7 @@ def apply_plan(args, cfg, plan, sd):
         try:
             shutil.rmtree(o["path"])
             with contextlib.suppress(Exception):
-                append_manifest(sd, {"event": "removed", "id": rid, "at": iso(time.time())})
+                append_manifest(sd, {"event": "removed", "id": rid, "at": stamp()})
             res["orphans"].append({"id": rid, "path": o["path"], "ok": True})
         except Exception as e:
             res["orphans"].append({"id": rid, "path": o["path"], "ok": False, "error": f"archived as {rid} but not removed: {e}"})
@@ -1323,7 +1410,7 @@ def apply_plan(args, cfg, plan, sd):
                                  strict=False, skip=skip)
             raw = raw_overlay(m["path"], f.get("changed_paths", []), archive)
             ign = ignored_real(m["path"], cfg)
-            rec = {"event": "dehydrated", "id": rid, "kind": "main-snapshot", "raw": raw, "at": iso(time.time()), "host": host,
+            rec = {"event": "dehydrated", "id": rid, "kind": "main-snapshot", "raw": raw, "at": stamp(), "host": host,
                    "repo": {"path": m["repo"], "origin": m["origin"]},
                    "worktree": {"path": m["path"], "branch": m["branch"], "head": m["head"],
                                 "dirty_count": m["facts"]["dirty_count"], "untracked_count": m["facts"]["untracked_count"]},
@@ -1418,6 +1505,608 @@ def render_apply(res):
     return "\n".join(L)
 
 
+# ---------------------------------------------------------------- live sessions (agents rows, launched copies)
+
+def pid_alive(pid):
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except PermissionError:
+        return True  # someone else's process: alive
+    except Exception:
+        return False
+
+
+def fetch_agents(args, timeout):
+    """`claude agents --json --all` with a timeout (or --agents-json). Raises on any failure."""
+    if getattr(args, "agents_json", None):
+        out = json.load(open(args.agents_json))
+    else:
+        r = subprocess.run([args.claude_bin, "agents", "--json", "--all"], capture_output=True, text=True,
+                           timeout=timeout, stdin=subprocess.DEVNULL)
+        if r.returncode != 0:
+            raise RuntimeError(f"claude agents --json --all failed: {r.stderr.strip()[:300]}")
+        out = json.loads(r.stdout or "[]")
+    if not isinstance(out, list):
+        raise RuntimeError("claude agents --json did not print a list")
+    return [a for a in out if isinstance(a, dict)]
+
+
+def launched_ids(rec):
+    """Session ids and short ids of the copies `rehydrate --launch` started (or found running) for a record."""
+    ids = set()
+    for ev in rec.get("rehydrations", []):
+        for l in ev.get("launched") or []:
+            if isinstance(l, dict):
+                ids.update(x for x in (l.get("bg_id"), l.get("session_id")) if x)
+    return ids
+
+
+def agent_live(a):
+    """A `claude agents` row that is running now: it has a pid, or its state says it works or waits."""
+    return bool(a.get("pid")) or (a.get("state") or a.get("status")) in ACTIVE_STATES | {"blocked"}
+
+
+def match_running(agents, sid, name, cwd, extra_ids=()):
+    """The `claude agents` row for a session (DESIGN 3.1), so it is never started twice: (1) a row with its own
+    session id, in any state (still listed means still open: attach it or `claude rm` it), (2) a row of a copy
+    an earlier --launch started (its stored ids), in any state, (3) a live row (a pid, or state working, busy,
+    running or blocked) with the same name in the same realpath cwd."""
+    for a in agents:
+        if sid and a.get("sessionId") == sid:
+            return a
+    for a in agents:
+        if extra_ids and (a.get("sessionId") in extra_ids or a.get("id") in extra_ids):
+            return a
+    rc = os.path.realpath(cwd) if cwd else None
+    for a in agents:
+        if agent_live(a) and name and rc and a.get("name") == name and a.get("cwd") \
+                and os.path.realpath(a["cwd"]) == rc:
+            return a
+    return None
+
+
+def running_ref(a):
+    return {"bg_id": a.get("id") or (a.get("sessionId") or "")[:8] or None, "session_id": a.get("sessionId"),
+            "state": a.get("state") or a.get("status") or None, "live": agent_live(a)}
+
+
+# ---------------------------------------------------------------- "has merges on it" (DESIGN 6)
+
+NOPROMPT = {"GIT_TERMINAL_PROMPT": "0"}  # a fetch that would ask for a credential fails instead of hanging
+
+
+def gh_merged_pr(path, branch, default, head, gh_bin):
+    """A PR from this branch merged into the default branch at exactly this HEAD (`gh pr list`), else None.
+    Pinned to origin's repo (`-R`), the remote the git checks fetch, never gh's default-repo guess. Runs the
+    `gh` on PATH (the account-routing wrapper, which reads -R), never with a GH_TOKEN prefix."""
+    origin = gout(path, "remote", "get-url", "origin")
+    if not origin:
+        return None
+    try:
+        r = subprocess.run([gh_bin, "pr", "list", "-R", gh_repo_arg(origin), "--head", branch, "--state", "merged",
+                            "--json",
+                            "number,headRefOid,mergedAt,baseRefName"], cwd=path, capture_output=True, text=True,
+                           timeout=20, stdin=subprocess.DEVNULL)
+        if r.returncode != 0:
+            return None
+        for pr in json.loads(r.stdout or "[]"):
+            if isinstance(pr, dict) and pr.get("baseRefName") == default and pr.get("headRefOid") == head:
+                return pr.get("number") or True
+    except Exception:
+        pass
+    return None
+
+
+OWN_REFLOG = re.compile(r"^(commit|cherry-pick|revert|am|merge [^:]*: Merge made|pull[^:]*: Merge made|"
+                        r"rebase[^:]*\((finish|pick|continue|squash|fixup|reword|edit)\))")
+
+
+def own_commits_on_head(path, br):
+    """Commits made on this branch (its reflog: commit, amend, cherry-pick, a merge it made, a rebase) that
+    HEAD still contains. A reset, a fast-forward pull and the creation entry are not its own work."""
+    lg = git(path, "reflog", "show", "--format=%H%x09%gs", f"refs/heads/{br}")
+    if lg.returncode != 0:
+        return []
+    own = []
+    for line in lg.stdout.splitlines()[:200]:
+        sha, _, subj = line.partition("\t")
+        if sha and OWN_REFLOG.match(subj) and sha not in own:
+            if git(path, "merge-base", "--is-ancestor", sha, "HEAD").returncode == 0:
+                own.append(sha)
+                break
+    return own
+
+
+def git_cherry_plus(path, base):
+    """Branch commits whose patch is not on base (`git cherry`: '+' lines), or None when it fails."""
+    r = git(path, "cherry", base, "HEAD", timeout=120)
+    if r.returncode != 0:
+        return None
+    return [x[2:].strip() for x in r.stdout.splitlines() if x.startswith("+ ")]
+
+
+def empty_commits(path, plus):
+    """Of the branch commits not on base, those that change nothing (an --allow-empty commit after a squash)."""
+    out = []
+    for sha in plus[:200]:
+        r = git(path, "diff-tree", "--no-commit-id", "--root", "-r", "--quiet", "-m", "--first-parent", sha)
+        if r.returncode == 0:  # --quiet: exit 0 means no difference from its parent
+            out.append(sha)
+    return out
+
+
+def gh_repo_arg(url):
+    """origin URL -> HOST/OWNER/REPO for `gh -R` (ssh, scp-like and https forms), else the URL as it is."""
+    m = re.match(r"^(?:[a-z+]+://)?(?:[^@/]+@)?([^/:]+)[:/]+([^/]+)/([^/]+?)(?:\.git)?/?$", url or "")
+    return f"{m.group(1)}/{m.group(2)}/{m.group(3)}" if m and "." in m.group(1) else url
+
+
+def merge_rule(path, cfg, gh_bin="gh", fetched=None):
+    """Whether a worktree's branch is merged into the remote default branch, by commits only (DESIGN 6.1/6.2).
+
+    -> {merged, by (ancestor | merge-tree | gh-pr), reason, pr, default_branch, branch, head}. Every error,
+    timeout or missing piece is NOT merged. `fetched` memoizes one fetch per repo and default branch per sweep."""
+    res = {"merged": False, "by": None, "reason": None, "pr": None, "default_branch": None, "branch": None,
+           "head": None}
+
+    def no(why):
+        res["reason"] = why
+        return res
+    tmo = cfg.get("auto_fetch_timeout_s", 30)
+    try:
+        if not path or not os.path.isdir(path):
+            return no("cwd is gone")
+        gd, cd = gout(path, "rev-parse", "--git-dir"), gout(path, "rev-parse", "--git-common-dir")
+        if not gd or not cd:
+            return no("not a git repo")
+        cd = os.path.realpath(os.path.join(path, cd))
+        if os.path.realpath(os.path.join(path, gd)) == cd:
+            return no("main checkout, not a linked worktree")
+        if cfg.get("auto_require_clean"):
+            st = git(path, "status", "--porcelain=v1", "--untracked-files=all")
+            if st.returncode != 0 or st.stdout.strip():
+                return no("uncommitted or untracked files (auto_require_clean)")
+        br = gout(path, "symbolic-ref", "-q", "--short", "HEAD")
+        if not br:
+            return no("detached HEAD")
+        res["branch"] = br
+        if not gout(path, "remote", "get-url", "origin"):
+            return no("no origin remote")
+        de = gout(path, "symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD")
+        de = de[len("origin/"):] if de.startswith("origin/") else ""
+        if not de:
+            r = git(path, "ls-remote", "--symref", "origin", "HEAD", env=NOPROMPT, timeout=tmo)
+            m = re.search(r"^ref: refs/heads/(\S+)\tHEAD", r.stdout, re.M) if r.returncode == 0 else None
+            if not m:
+                return no("default branch unknown (no origin/HEAD, ls-remote failed)")
+            de = m.group(1)
+        res["default_branch"] = de
+        if br == de:
+            return no(f"on the default branch {de}")
+        key = (cd, de)
+        if fetched is None or key not in fetched:
+            try:
+                r = git(path, "fetch", "--quiet", "--no-tags", "origin", f"+refs/heads/{de}:refs/remotes/origin/{de}",
+                        env=NOPROMPT, timeout=tmo)
+                why = None if r.returncode == 0 else f"fetch of origin/{de} failed: {r.stderr.strip()[:200]}"
+            except subprocess.TimeoutExpired:
+                why = f"fetch of origin/{de} timed out after {tmo}s"
+            if fetched is not None:
+                fetched[key] = why
+        else:
+            why = fetched[key]
+        if why:
+            return no(why)
+        base = f"refs/remotes/origin/{de}"
+        head = gout(path, "rev-parse", "--verify", "-q", "HEAD")
+        if not head:
+            return no("branch has no commits")
+        res["head"] = head
+        pr_memo = []
+
+        def pr():
+            if not pr_memo:
+                pr_memo.append(gh_merged_pr(path, br, de, head, gh_bin) if cfg.get("auto_use_gh", True) else None)
+            return pr_memo[0]
+        n = gout(path, "rev-list", "--count", f"{base}..HEAD")
+        if n == "0":
+            # contained in the default branch; it must also have commits of its own that are still on it (a
+            # branch sitting at an old default tip, or one whose own commit was reset away, is not merged work)
+            own = own_commits_on_head(path, br)
+            if own or pr():
+                res.update(merged=True, by="ancestor", pr=pr() if not own else None,
+                           reason=f"{br} is contained in origin/{de}")
+                return res
+            return no(f"{br} has no commits of its own on it (at or behind origin/{de})")
+        if not n.isdigit():
+            return no("rev-list failed")
+        mt = git(path, "merge-tree", "--write-tree", base, "HEAD")  # exit 0 = clean merge (git >= 2.38)
+        if mt.returncode == 0:
+            tree = mt.stdout.split("\n", 1)[0].strip()
+            if tree and tree == gout(path, "rev-parse", f"{base}^{{tree}}"):
+                # Merging changes nothing. That proves a squash or rebase merge only when the branch changed
+                # something: a commit and its revert (net zero) also merges as nothing, never having landed.
+                mb = gout(path, "merge-base", base, "HEAD")
+                files = [x for x in gout(path, "diff", "--name-only", "--no-renames", mb, "HEAD").splitlines() if x] \
+                    if mb else []
+                if not files:
+                    return no(f"{br} has {n} commits that change nothing in total (a commit and its undo); "
+                              f"not proof of a merge")
+                plus = git_cherry_plus(path, base)
+                if plus is None:
+                    return no("git cherry failed")
+                empty = empty_commits(path, plus)
+                if empty:
+                    return no(f"{br} has a commit with no changes ({empty[0][:8]}) that is not on origin/{de}")
+                res.update(merged=True, by="merge-tree",
+                           reason=(f"every commit of {br} has its patch on origin/{de} (rebase or one-commit squash merge)"
+                                   if not plus else
+                                   f"the {len(files)} file{'s' if len(files) != 1 else ''} {br} changes "
+                                   f"{'are' if len(files) != 1 else 'is'} already on origin/{de}; "
+                                   f"merging it changes nothing (squash merge)"))
+                return res
+        if pr():
+            res.update(merged=True, by="gh-pr", pr=pr(), reason=f"PR #{pr()} from {br} merged into {de} at this HEAD")
+            return res
+        return no(f"{br} has {n} commits not in origin/{de}")
+    except subprocess.TimeoutExpired as e:
+        return no(f"timed out: git {' '.join(str(x) for x in e.cmd[3:5])}")
+    except Exception as e:
+        return no(f"check failed: {e.__class__.__name__}: {str(e)[:200]}")
+
+
+# ---------------------------------------------------------------- auto (sweep and the close kick)
+
+def detach():
+    """Fork twice and setsid, like a daemon: the caller returns at once (a hook never waits). SIGHUP is
+    ignored first: until setsid the child is still in the caller's process group, and a terminal or pane
+    closing then hangs that group up (the mod's kick also starts it with HUP ignored, for Python's startup)."""
+    with contextlib.suppress(Exception):
+        signal.signal(signal.SIGHUP, signal.SIG_IGN)
+    if os.fork():
+        return False
+    os.setsid()
+    if os.fork():
+        os._exit(0)
+    devnull = os.open(os.devnull, os.O_RDWR)
+    for fd in (0, 1, 2):
+        os.dup2(devnull, fd)
+    return True
+
+
+def session_pid_files(ch, sid):
+    """<claude_home>/sessions/<pid>.json rows for a session id: what a running Claude process registers."""
+    out = []
+    d = os.path.join(ch, "sessions")
+    with contextlib.suppress(OSError):
+        for fn in sorted(os.listdir(d)):
+            if fn.endswith(".json"):
+                with contextlib.suppress(Exception):
+                    o = json.load(open(os.path.join(d, fn)))
+                    if isinstance(o, dict) and o.get("sessionId") == sid:
+                        out.append(o)
+    return out
+
+
+def wait_for_exit(ch, sid, wait_s):
+    """Poll until no live process holds the session (the close kick fires before the process exits).
+    -> (still_alive, {name, cwd} as the process registered them)."""
+    seen, deadline = {}, time.time() + wait_s
+    while True:
+        rows = session_pid_files(ch, sid)
+        for o in rows:
+            seen.update({k: o[k] for k in ("name", "cwd") if isinstance(o.get(k), str) and o[k]})
+        alive = any(o.get("pid") and pid_alive(o["pid"]) for o in rows)
+        if not alive or time.time() >= deadline:
+            return alive, seen
+        time.sleep(1)
+
+
+def auto_log(sd, decisions):
+    last = {}
+    p = os.path.join(sd, "auto.log")
+    with contextlib.suppress(OSError):
+        for line in open(p).readlines()[-5000:]:
+            with contextlib.suppress(Exception):
+                d = json.loads(line)
+                last[d.get("session_id")] = (d.get("decision"), d.get("reason"))
+    with open(p, "a") as f:
+        for d in decisions:
+            if d["decision"] == "refused" and last.get(d.get("session_id")) == ("refused", d["reason"]):
+                continue  # a sweep every few minutes: log a refusal again only when its reason changes
+            f.write(json.dumps(d, sort_keys=True) + "\n")
+
+
+def pending_dir(sd):
+    return os.path.join(sd, "auto-pending")
+
+
+def defer(sd, sid, why, trigger):
+    """Queue a session for the next auto run (the lock holder drains it, else the next SessionStart sweep)."""
+    with contextlib.suppress(OSError):
+        os.makedirs(pending_dir(sd), exist_ok=True)
+        with open(os.path.join(pending_dir(sd), re.sub(r"[^A-Za-z0-9-]", "_", sid) + ".json"), "w") as f:
+            json.dump({"session_id": sid, "at": iso(time.time()), "why": why}, f)
+    return {"at": iso(time.time()), "session_id": sid, "bg_id": None, "name": None, "trigger": trigger,
+            "decision": "deferred", "reason": why}
+
+
+def take_lock(path, wait_s):
+    """flock with a bounded wait: -> the open file, or None when another run still holds it after wait_s."""
+    f = open(path, "w")
+    deadline = time.time() + wait_s
+    while True:
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return f
+        except BlockingIOError:
+            if time.time() >= deadline:
+                f.close()
+                return None
+            time.sleep(0.5)
+
+
+def auto_sweep(args, cfg, sd, trigger="sweep"):
+    """DESIGN 3.2: dehydrate ended sessions whose worktree has merges on it, through apply_plan with every hold.
+    -> {"decisions": [...], "applied": [...] | None, "off": why-nothing-ran | None}. Logs to <state>/auto.log.
+
+    The close kick waits for its session's process to exit BEFORE it takes .auto.lock, then waits for the lock
+    up to DEHYDRATE_AUTO_LOCK_WAIT_S (default 120 s). One that still cannot get it, or that meets the apply lock,
+    is queued in <state>/auto-pending and logged `deferred`; whoever holds the lock next drains the queue."""
+    out = {"decisions": [], "applied": None, "off": None}
+    if not cfg.get("auto_on_close") or cfg.get("_config_error"):
+        out["off"] = f"config error: {cfg['_config_error']}" if cfg.get("_config_error") else "auto_on_close is off"
+        return out
+    target = getattr(args, "session", None)
+    dry = getattr(args, "dry_run", False)
+    if target and getattr(args, "_waited", None) is None:
+        args._waited = wait_for_exit(claude_home(args), target, float(os.environ.get("DEHYDRATE_AUTO_WAIT_S", "60")))
+    lock = take_lock(os.path.join(sd, ".auto.lock"), float(os.environ.get("DEHYDRATE_AUTO_LOCK_WAIT_S", "120")))
+    if lock is None:
+        out["off"] = "another auto run holds the lock"
+        if target and not dry:
+            out["decisions"].append(defer(sd, target, "another auto run held the lock; queued for the next run",
+                                          trigger))
+            out["off"] += "; deferred"
+            with contextlib.suppress(Exception):
+                auto_log(sd, out["decisions"])
+        return out
+    try:
+        _auto(args, cfg, sd, trigger, out)
+        if not dry:
+            drain_pending(args, cfg, sd, out, skip={target} if target else set())
+    finally:
+        if not dry:
+            with contextlib.suppress(Exception):
+                auto_log(sd, out["decisions"])
+        fcntl.flock(lock, fcntl.LOCK_UN)
+        lock.close()
+    return out
+
+
+def drain_pending(args, cfg, sd, out, skip=()):
+    """Run each queued session id once, as its own close kick would have (no grace, its process long gone)."""
+    d = pending_dir(sd)
+    with contextlib.suppress(OSError):
+        for fn in sorted(os.listdir(d)):
+            p = os.path.join(d, fn)
+            try:
+                sid = json.load(open(p)).get("session_id")
+            except Exception:
+                sid = None
+            if sid and sid in skip:
+                continue  # queued by this very run: the next one takes it
+            with contextlib.suppress(OSError):
+                os.unlink(p)
+            if not sid:
+                continue
+            a2 = argparse.Namespace(**vars(args))
+            a2.session, a2._agents = sid, None
+            a2._waited = wait_for_exit(claude_home(args), sid, 0)
+            _auto(a2, cfg, sd, "session.end (deferred)", out)
+
+
+def _auto(args, cfg, sd, trigger, out):
+    now = args.now or time.time()
+    ch = claude_home(args)
+    target = getattr(args, "session", None)
+    gh_bin = getattr(args, "gh_bin", None) or os.environ.get("DEHYDRATE_GH_BIN") or "gh"
+    me = {x for x in (os.environ.get("CLAUDE_CODE_SESSION_ID"),
+                      os.path.basename(os.environ.get("CLAUDE_JOB_DIR", "").rstrip("/"))) if x} - {target}
+    dec = out["decisions"]
+
+    def decide(c, decision, reason, **kw):
+        dec.append(dict({"at": iso(time.time()), "session_id": c.get("session_id"), "bg_id": c.get("bg_id"),
+                         "name": c.get("name"), "trigger": trigger, "decision": decision, "reason": reason}, **kw))
+    alive, seen = False, {}
+    if target:
+        alive, seen = getattr(args, "_waited", None) or \
+            wait_for_exit(ch, target, float(os.environ.get("DEHYDRATE_AUTO_WAIT_S", "60")))
+    try:
+        agents = fetch_agents(args, 60)
+    except Exception as e:
+        decide({"session_id": target}, "refused", f"claude agents unreadable: {str(e)[:200]}")
+        return
+    args._agents = agents
+    tidx = transcript_index(ch)
+    rows = session_rows(args, cfg, tidx, now)
+    if target and not any(r["session_id"] == target for r in rows):
+        # an interactive session has no agents row once it exits: build it from its transcript and pid file
+        t = tidx.get(target) or {}
+        cwd = seen.get("cwd") or t.get("cwd") or ""
+        if not t and not seen:
+            decide({"session_id": target}, "refused", "no agents row and no transcript for this session")
+            return
+        rows.append({"bg_id": None, "session_id": target, "name": seen.get("name") or "", "cwd": cwd,
+                     "kind": "interactive", "state": "ended", "pid": None, "last_activity": t.get("mtime") or now,
+                     "transcript": t.get("path"), "project_dir": t.get("project_dir"), "job_dir": None,
+                     "worktree_path": None, "rcwd": os.path.realpath(cwd) if cwd else None})
+    cands = [r for r in rows if r["session_id"] == target] if target else \
+        [r for r in rows if r["kind"] == "background" and r["session_id"]]
+    cur = current_records(sd)
+    done_sids = {x.get("session_id") for r in cur.values() if not r["rehydrations"] for x in r.get("sessions", [])}
+    # A session brought back by rehydrate is left alone until it is used and ends again: its activity (transcript,
+    # job state) must be newer than the latest rehydration, so restoring a merged worktree to look at it does not
+    # lose it again at the next sweep. Rehydrating a session record also covers its linked worktree record.
+    rehydrated_at = {}
+    for r in cur.values():
+        if not r["rehydrations"]:
+            continue
+        t = max(record_ts(e) for e in r["rehydrations"])
+        recs = [r] + ([cur[r["linked_worktree_id"]]] if cur.get(r.get("linked_worktree_id") or "") else []) + \
+            [s for s in cur.values() if s.get("linked_worktree_id") == r["id"]]
+        for rr in recs:
+            for x in rr.get("sessions", []):
+                if x.get("session_id"):
+                    rehydrated_at[x["session_id"]] = max(t, rehydrated_at.get(x["session_id"], 0))
+    done_sids -= set(rehydrated_at)  # brought back: judged by the rule below, not as already dehydrated
+    copies = {}
+    for r in cur.values():
+        for x in r.get("sessions", []):
+            copies.setdefault(x.get("session_id"), set()).update(launched_ids(r))
+    fetched, accepted = {}, []
+    for c in cands:
+        sid = c["session_id"]
+        ids = {sid} | copies.get(sid, set())
+        live = [a for a in agents if (a.get("sessionId") in ids or a.get("id") in ids)
+                and (a.get("pid") or (a.get("state") or a.get("status")) in ACTIVE_STATES | {"blocked"})]
+        wt = c.get("worktree_path") if c.get("worktree_path") and os.path.isdir(c["worktree_path"]) else None
+        cwd = wt or c.get("cwd")
+        if sid in me:
+            decide(c, "refused", "this session")
+        elif sid in done_sids:
+            decide(c, "refused", "already dehydrated")
+        elif sid in rehydrated_at and c["last_activity"] <= rehydrated_at[sid] + 2:
+            decide(c, "refused", f"rehydrated at {iso(rehydrated_at[sid])} and not used since "
+                                 f"(auto waits until it runs and ends again)")
+        elif alive:
+            decide(c, "refused", "its process is still running")
+        elif live:
+            a = live[0]
+            decide(c, "refused", f"live: pid {a['pid']}" if a.get("pid") else f"live: state {a.get('state') or a.get('status')}")
+        elif c["kind"] == "background" and c["state"] not in ("done", "failed"):
+            decide(c, "refused", f"state {c['state'] or 'unknown'} (not ended)")
+        elif not target and now - c["last_activity"] < cfg["auto_grace_minutes"] * 60:
+            decide(c, "refused", f"ended {int((now - c['last_activity']) // 60)}m ago "
+                                 f"(< auto_grace_minutes {cfg['auto_grace_minutes']})")
+        elif not cwd or not os.path.isdir(cwd):
+            decide(c, "refused", "its cwd is gone")
+        else:
+            top = gout(cwd, "rev-parse", "--show-toplevel")
+            top = os.path.realpath(top) if top else None
+            other = [a for a in agents if a.get("pid") and a.get("sessionId") not in ids and a.get("cwd")
+                     and top and under(os.path.realpath(a["cwd"]), top)]
+            if not top:
+                decide(c, "refused", "its cwd is not in a git repo")
+            elif other:
+                o = other[0]
+                decide(c, "refused", f"{o.get('kind') or 'a'} session {o.get('name') or o.get('id') or ''} is open in {short(top)}".replace("  ", " "))
+            else:
+                m = merge_rule(top, cfg, gh_bin, fetched)
+                if not m["merged"]:
+                    decide(c, "refused", f"not merged: {m['reason']}")
+                else:
+                    accepted.append((c, top, m))
+    # a worktree shared with a session that is not itself accepted stays (DESIGN 6.3)
+    ok = {c["session_id"] for c, _, _ in accepted}
+    by_top = {}
+    for c, top, m in accepted:
+        shared = [r for r in rows if r["session_id"] and r["session_id"] not in ok
+                  and (r.get("worktree_path") or r.get("rcwd")) and under(r.get("worktree_path") or r["rcwd"], top)]
+        if shared:
+            s = shared[0]
+            decide(c, "refused", f"worktree shared with session {s['bg_id'] or s['session_id'][:8]} {s['name']} "
+                                 f"that is not ready".rstrip())
+        else:
+            by_top.setdefault(top, []).append((c, m))
+    out["applied"] = []
+    for top, group in sorted(by_top.items()):
+        sids = [c["session_id"] for c, _ in group]
+        m = group[0][1]
+        if getattr(args, "dry_run", False):
+            for c, _ in group:
+                decide(c, "dehydrate", m["reason"], merged_by=m["by"], dry_run=True)
+            continue
+        a2 = argparse.Namespace(**vars(args))
+        a2.only, a2.no_sessions, a2.no_worktrees, a2.no_main, a2.pressure = [top] + sids, False, False, True, False
+        a2.now = max(now, time.time())  # days=0 waives the window only if no mtime reads as later than "now"
+        # an interactive session that just exited must not be read as a kept (open) session
+        a2._agents = [a for a in agents if a.get("sessionId") not in sids or a.get("kind") == "background"]
+        a2._names = {c["session_id"]: c["name"] for c, _ in group if c.get("name")}
+        cfg2 = dict(cfg, days=0, snapshot_main=False)  # the idle window is waived for these items only
+        try:
+            plan = build_plan(a2, cfg2)
+            w = next((w for w in plan["worktrees"] if w["path"] == top), None)
+            if not w or w["action"] != "dehydrate":
+                why = f"{w['action']}: {w['reason']}" if w else "the plan found no worktree there"
+                for c, _ in group:
+                    decide(c, "refused", f"plan holds it ({why})")
+                continue
+            plan["sessions"] = [s for s in plan["sessions"] if s["session_id"] in sids and s["action"] == "close"]
+            plan["auto"] = {"trigger": trigger, "merged_by": m["by"], "pr": m["pr"], "default_branch": m["default_branch"]}
+            with run_lock(sd, wait_s=float(os.environ.get("DEHYDRATE_AUTO_LOCK_WAIT_S", "120"))):
+                res = apply_plan(a2, cfg2, plan, sd)
+        except LockHeld as e:
+            for c, _ in group:
+                if target and c["session_id"] == target:
+                    dec.append(defer(sd, target, f"{e}; queued for the next run", trigger))
+                else:
+                    decide(c, "deferred", f"{e}; the next sweep tries again")
+            continue
+        except (Exception, SystemExit) as e:
+            for c, _ in group:
+                decide(c, "refused", f"apply failed: {str(e)[:200]}")
+            continue
+        out["applied"].append(render_apply(res))
+        wr = next((x for x in res["worktrees"] if x.get("path") == top), None)
+        if wr and wr.get("ok"):
+            ids = [wr["id"]] + [x["id"] for x in res["sessions"] if x.get("ok")]
+            notes = [x["error"] for x in res["sessions"] if not x.get("ok") and x.get("error")]
+            for c, _ in group:
+                decide(c, "dehydrated", m["reason"], merged_by=m["by"], ids=ids, **({"notes": notes} if notes else {}))
+        else:
+            why = (f"paused: {res['paused']}" if res["paused"] else (wr or {}).get("error") or "not captured")
+            for c, _ in group:
+                decide(c, "refused", why)
+
+
+def cmd_auto(args, cfg):
+    sd = state_dir(args)
+    for k in ("state_dir", "claude_home", "agents_json"):
+        if getattr(args, k, None):
+            setattr(args, k, os.path.abspath(os.path.expanduser(getattr(args, k))))
+    os.chdir("/")  # the close kick starts in the ending session's worktree; a cwd there would hold it
+    if args.session:  # the kick inherits the ending session's identity: it is the target, not "this session"
+        os.environ.pop("CLAUDE_CODE_SESSION_ID", None)
+        os.environ.pop("CLAUDE_JOB_DIR", None)
+    if args.detach and not detach():
+        return 0
+    try:
+        res = auto_sweep(args, cfg, sd, "session.end" if args.session else "sweep")
+    except BaseException as e:  # exit 0 on every path; the error is logged
+        res = {"decisions": [], "applied": None, "off": f"error: {e.__class__.__name__}: {str(e)[:300]}"}
+        with contextlib.suppress(Exception):
+            auto_log(sd, [{"at": iso(time.time()), "session_id": args.session, "decision": "refused",
+                           "reason": res["off"]}])
+    if args.detach:
+        os._exit(0)
+    warn = config_warnings(cfg) if args.dry_run or not args.session else []
+    if args.json:
+        print(json.dumps(dict(res, warnings=warn), indent=1))
+    else:
+        for w in warn:
+            print(f"WARNING: {w}")
+        if res.get("off"):
+            print(f"auto: nothing ran ({res['off']})")
+        for d in res["decisions"]:
+            print(f"  {d['decision']:10s} {d.get('bg_id') or (d.get('session_id') or '')[:8]:9s} "
+                  f"{(d.get('name') or '')[:40]:40s} {d['reason']}")
+        for a in res.get("applied") or []:
+            print(a)
+    return 0
+
+
 # ---------------------------------------------------------------- rehydrate
 
 def find_record(sd, key):
@@ -1428,6 +2117,7 @@ def find_record(sd, key):
         r["id"], *(s.get("session_id") for s in r.get("sessions", [])),
         *(s.get("bg_id") for s in r.get("sessions", [])),
         *((s.get("session_id") or "")[:8] for s in r.get("sessions", [])),
+        *(s.get("name") for s in r.get("sessions", []) if s.get("name")),  # the exact `claude agents` name
         (r.get("worktree") or {}).get("path"), (r.get("worktree") or {}).get("branch"))]
     if len(hits) > 1:
         sess = [h for h in hits if h["kind"] == "session"]
@@ -1441,29 +2131,71 @@ def find_record(sd, key):
     raise SystemExit(f"no manifest record matches '{key}'. Search by words with: list <words>")
 
 
-def restore_transcript(args, info):
+def gunzip_sha256(path):
+    h = hashlib.sha256()
+    with gzip.open(path, "rb") as f:
+        for b in iter(lambda: f.read(1 << 20), b""):
+            h.update(b)
+    return h.hexdigest()
+
+
+def restore_transcript(args, info, tidx):
+    """-> (path or None, restored, problem or None). A missing or corrupt archived copy is a problem the caller
+    reports (and does not launch), never an exit: the worktree restore must not hang on a transcript."""
     sid = info.get("session_id")
-    ch = claude_home(args)
-    existing = transcript_index(ch).get(sid)
+    existing = tidx.get(sid)
     if existing:
-        return existing["path"], False
+        return existing["path"], False, None
     copy = info.get("transcript_copy")
     if not copy or not os.path.isfile(copy):
-        return None, False
+        return None, False, "no transcript archived; resume will fail"
+    want = info.get("transcript_sha256")
+    try:
+        ok = not want or gunzip_sha256(copy) == want
+    except Exception:  # not gzip at all, truncated, unreadable
+        ok = False
+    if not ok:
+        return None, False, f"archived transcript for {sid} fails its checksum; not restored, not launched"
     pd = info.get("project_dir") or re.sub(r"[^A-Za-z0-9]", "-", info.get("cwd") or "unknown")
-    dest_dir = os.path.join(ch, "projects", pd)
+    dest_dir = os.path.join(claude_home(args), "projects", pd)
     os.makedirs(dest_dir, exist_ok=True)
     dest = os.path.join(dest_dir, f"{sid}.jsonl")
     with gzip.open(copy, "rb") as fi, open(dest + ".tmp", "wb") as fo:
         shutil.copyfileobj(fi, fo)
-    if info.get("transcript_sha256") and sha256(dest + ".tmp") != info["transcript_sha256"]:
+    if want and sha256(dest + ".tmp") != want:
         os.unlink(dest + ".tmp")
-        raise SystemExit(f"archived transcript for {sid} fails its checksum")
+        return None, False, f"archived transcript for {sid} fails its checksum; not restored, not launched"
     os.replace(dest + ".tmp", dest)
-    return dest, True
+    return dest, True, None
 
 
-def rehydrate_worktree(rec, target, args):
+def current_branch(path):
+    return gout(path, "symbolic-ref", "-q", "--short", "HEAD") or None if path and os.path.isdir(path) else None
+
+
+def in_place(rec, target):
+    """The record's restore is still standing at target: its last good rehydration put it there, the dir is
+    that worktree's top level, and it is on the branch that rehydration left it on."""
+    evs = [e for e in rec.get("rehydrations", []) if not e.get("error") and e.get("path")]
+    if not evs or not target or not os.path.isdir(target):
+        return False
+    last = evs[-1]
+    if os.path.realpath(last["path"]) != os.path.realpath(target):
+        return False
+    if rec["kind"] == "orphan":
+        return True
+    top = gout(target, "rev-parse", "--show-toplevel")
+    if not top or os.path.realpath(top) != os.path.realpath(target):
+        return False
+    br = current_branch(target)
+    if "branch" in last:
+        return br == last["branch"]
+    want = (rec.get("worktree") or {}).get("branch")  # an event from before 0.2.0 names no branch
+    return want is None or br == want or bool(br and br.startswith(want + "-rehydrated-"))
+
+
+def rehydrate_worktree(rec, target, args, touched=None):
+    """Every archive check runs before anything changes; `touched["disk"]` is set once the worktree is added."""
     repo = rec["repo"]["path"]
     if not repo or not os.path.isdir(repo):
         raise SystemExit(f"repo {repo} is gone; clone it there first")
@@ -1487,6 +2219,8 @@ def rehydrate_worktree(rec, target, args):
     branch = (rec.get("worktree") or {}).get("branch")
     parent = snap.get("parent")
     notes = []
+    if touched is not None:
+        touched["disk"] = True
     if branch and git(repo, "rev-parse", "--verify", "-q", f"refs/heads/{branch}").returncode == 0:
         tip = gout(repo, "rev-parse", f"refs/heads/{branch}")
         in_use = any(w["branch"] == branch for w in list_worktrees(repo))
@@ -1534,59 +2268,169 @@ def rehydrate_worktree(rec, target, args):
     return notes
 
 
+UNCONFIRMED_WINDOW_S = 600  # a launch that reported no id blocks another launch of that session this long
+
+
+def launch_sessions(args, rec, resumes):
+    """--launch: resume each restored session in the background (`claude --bg --resume`) unless a copy runs.
+
+    Fails closed: when `claude agents` cannot be read nothing is launched, so no duplicate copy is started.
+    The copy keeps the agents name (-n). Its new short id is parsed from the CLI's output. Every session that is
+    not launched gets an entry with `skipped: true` and the reason in `note`."""
+    launched = []
+
+    def skip(r, note):
+        launched.append({"from_session_id": r["session_id"], "bg_id": None, "session_id": None, "name": r["name"],
+                         "rc": None, "reused": False, "skipped": True, "note": note})
+    todo = []
+    for r in resumes:
+        if r["transcript"]:
+            todo.append(r)
+        else:
+            skip(r, r.get("problem") or "no transcript archived; resume will fail")
+    if not todo:
+        return launched
+    try:
+        agents = fetch_agents(args, 60)
+    except Exception:
+        for r in todo:
+            skip(r, f"could not check claude agents; not launched. Run: cd {shlex.quote(r['cwd'])} "
+                    f"&& claude --bg --resume {r['session_id']}")
+        return launched
+    extra, ch = launched_ids(rec), claude_home(args)
+    window = float(os.environ.get("DEHYDRATE_UNCONFIRMED_WINDOW_S", UNCONFIRMED_WINDOW_S))
+    for r in todo:
+        hit = match_running(agents, r["session_id"], r["name"], r["cwd"], extra)
+        if hit:
+            ref = running_ref(hit)
+            note = None if ref["live"] else \
+                f"still open in claude agents as {ref['bg_id']} (state {ref['state'] or 'unknown'}); " \
+                f"claude attach {ref['bg_id']}, or claude rm {ref['bg_id']} and rehydrate again"
+            launched.append(dict(ref, from_session_id=r["session_id"], name=hit.get("name") or r["name"],
+                                 rc=0, reused=True, note=note))
+            continue
+        recent = [l for ev in rec.get("rehydrations", []) for l in (ev.get("launched") or [])
+                  if isinstance(l, dict) and l.get("unconfirmed") and l.get("from_session_id") == r["session_id"]
+                  and time.time() - record_ts({"at": l.get("at") or ev.get("at") or ""}) < window]
+        if recent:
+            skip(r, f"an earlier --launch at {recent[-1].get('at')} reported no id and may still be starting; "
+                    f"not starting another for {int(window // 60)} min. Check claude agents for "
+                    f"{r['name'] or r['session_id'][:8]}, or run: {r['command']}")
+            continue
+        argv = [args.claude_bin, "--bg", "--resume", r["session_id"]] + (["-n", r["agents_name"]] if r.get("agents_name") else [])
+        try:
+            p = subprocess.run(argv, cwd=r["cwd"], capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL)
+            out, rc = p.stdout + p.stderr, p.returncode
+        except Exception as e:
+            out, rc = f"{e.__class__.__name__}: {e}", -1
+        m = re.search(r"started a copy as ([0-9a-f]{8})", out) or re.search(r"backgrounded · ([0-9a-f]{8})", out)
+        bg, sid = (m.group(1) if m else None), None
+        if bg:
+            with contextlib.suppress(Exception):
+                sid = json.load(open(os.path.join(ch, "jobs", bg, "state.json"))).get("sessionId")
+            if not sid:
+                with contextlib.suppress(Exception):
+                    sid = next((a.get("sessionId") for a in fetch_agents(args, 60) if a.get("id") == bg), None)
+        tail = out.strip()[-200:]
+        entry = {"from_session_id": r["session_id"], "bg_id": bg, "session_id": sid, "name": r["name"],
+                 "rc": rc, "reused": False, "note": None, "out": out.strip()[-300:]}
+        if not bg and rc == 0:
+            # it may well be starting: record that, so the next --launch does not start a second copy
+            entry.update(unconfirmed=True, at=iso(time.time()),
+                         note="launch did not report a background id; it may still be starting. Check claude agents"
+                              + (f" ({tail})" if tail else "") + f" before running: {r['command']}")
+        elif not bg or rc != 0:
+            entry["note"] = f"launch failed (rc {rc})" + (f": {tail}" if tail else "") + f". Run: {r['command']}"
+        launched.append(entry)
+    return launched
+
+
 def cmd_rehydrate(args):
     sd = state_dir(args)
-    rec = find_record(sd, args.key)
-    notes, where = [], None
+    find_record(sd, args.key)  # an unknown key fails before the lock
+    notes, where, resumes, launched = [], None, [], []
+    touched, changed, err = {"disk": False}, False, None
     with run_lock(sd):
-        if rec["kind"] == "session" and rec.get("linked_worktree_id") and not args.session_only:
-            wrec = current_records(sd).get(rec["linked_worktree_id"])
-            if wrec and not os.path.exists(wrec["worktree"]["path"]):
-                notes += rehydrate_worktree(wrec, wrec["worktree"]["path"], args)
-                append_manifest(sd, {"event": "rehydrated", "id": wrec["id"], "at": iso(time.time()),
-                                     "path": wrec["worktree"]["path"], "via": rec["id"]})
-            where = wrec["worktree"]["path"] if wrec else None
-        elif rec["kind"] in ("worktree", "main-snapshot"):
-            target = os.path.realpath(os.path.expanduser(args.path)) if args.path else rec["worktree"]["path"]
-            if rec["kind"] == "main-snapshot" and not args.path:
-                raise SystemExit("a main-snapshot is restored next to the checkout, never over it: pass --path <dir>")
-            notes += rehydrate_worktree(rec, target, args)
-            where = target
-        elif rec["kind"] == "orphan":
-            target = os.path.expanduser(args.path) if args.path else rec["worktree"]["path"]
-            if os.path.exists(target):
-                raise SystemExit(f"{target} already exists; pass --path")
-            os.makedirs(target)
-            with tarfile.open(rec["tree_tar"]["path"], "r:gz") as tf:
-                safe_extract(tf, target)
-            where = target
-        resumes = []
-        for info in rec.get("sessions", []):
-            if not info.get("session_id"):
-                continue
-            path, restored = restore_transcript(args, info)
-            cwd = where if where and os.path.isdir(where) else (info.get("cwd") if info.get("cwd") and os.path.isdir(info["cwd"]) else None)
-            cwd = cwd or rec["repo"].get("path") or os.path.expanduser("~")
-            resumes.append({"session_id": info["session_id"], "name": info.get("name") or info.get("title"),
-                            "cwd": cwd, "transcript": path, "transcript_restored": restored,
-                            "command": f"cd {shlex.quote(cwd)} && claude --resume {info['session_id']}"})
-        append_manifest(sd, {"event": "rehydrated", "id": rec["id"], "at": iso(time.time()), "path": where})
-        write_index(sd)
-    launched = []
-    if args.launch:
-        running = set()
-        with contextlib.suppress(Exception):
-            p = subprocess.run([args.claude_bin, "agents", "--json"], capture_output=True, text=True, timeout=60)
-            running = {a.get("sessionId") for a in json.loads(p.stdout or "[]")}
-        for r in resumes:
-            if not r["transcript"]:
-                continue
-            if r["session_id"] in running:
-                launched.append({"session_id": r["session_id"], "rc": 0, "out": "already running; not started again"})
-                continue
-            p = subprocess.run([args.claude_bin, "--bg", "--resume", r["session_id"]], cwd=r["cwd"],
-                               capture_output=True, text=True, timeout=120)
-            launched.append({"session_id": r["session_id"], "rc": p.returncode, "out": (p.stdout + p.stderr).strip()[-300:]})
+        rec = find_record(sd, args.key)  # re-read under the lock
+        cur = current_records(sd)
+        prior = bool(rec["rehydrations"])
+        try:
+            if rec["kind"] == "session" and rec.get("linked_worktree_id") and not args.session_only:
+                wrec = cur.get(rec["linked_worktree_id"])
+                if wrec:
+                    wp = wrec["worktree"]["path"]
+                    if not os.path.exists(wp):
+                        notes += rehydrate_worktree(wrec, wp, args, touched)
+                        changed = True
+                        append_manifest(sd, {"event": "rehydrated", "id": wrec["id"], "at": iso(time.time()),
+                                             "path": wp, "branch": current_branch(wp), "via": rec["id"]})
+                    elif in_place(wrec, wp):
+                        notes.append(f"worktree already restored at {wp}, nothing changed")
+                    else:
+                        notes.append(f"{wp} exists and is not this record's restored worktree; left as it is")
+                where = wrec["worktree"]["path"] if wrec else None
+            elif rec["kind"] in ("worktree", "main-snapshot"):
+                target = os.path.realpath(os.path.expanduser(args.path)) if args.path else rec["worktree"]["path"]
+                if rec["kind"] == "main-snapshot" and not args.path:
+                    raise SystemExit("a main-snapshot is restored next to the checkout, never over it: pass --path <dir>")
+                if in_place(rec, target):
+                    notes.append(f"already restored at {target}, nothing changed")
+                else:
+                    notes += rehydrate_worktree(rec, target, args, touched)
+                    changed = True
+                where = target
+            elif rec["kind"] == "orphan":
+                target = os.path.expanduser(args.path) if args.path else rec["worktree"]["path"]
+                if in_place(rec, target):
+                    notes.append(f"already restored at {target}, nothing changed")
+                else:
+                    if os.path.exists(target):
+                        raise SystemExit(f"{target} already exists; pass --path")
+                    touched["disk"] = True
+                    os.makedirs(target)
+                    with tarfile.open(rec["tree_tar"]["path"], "r:gz") as tf:
+                        safe_extract(tf, target)
+                    changed = True
+                where = target
+            tidx = transcript_index(claude_home(args))
+            for info in rec.get("sessions", []):
+                if not info.get("session_id"):
+                    continue
+                path, restored, problem = restore_transcript(args, info, tidx)
+                changed = changed or restored
+                if problem:
+                    notes.append(f"{info.get('name') or info['session_id'][:8]}: {problem}")
+                cwd = where if where and os.path.isdir(where) else (info.get("cwd") if info.get("cwd") and os.path.isdir(info["cwd"]) else None)
+                cwd = cwd or rec["repo"].get("path") or os.path.expanduser("~")
+                resumes.append({"session_id": info["session_id"], "name": info.get("name") or info.get("agent_name")
+                                or info.get("title"), "agents_name": info.get("name"),
+                                "cwd": cwd, "transcript": path, "transcript_restored": restored, "problem": problem,
+                                "command": f"cd {shlex.quote(cwd)} && claude --resume {info['session_id']}"})
+            if args.launch:
+                launched = launch_sessions(args, rec, resumes)
+        except BaseException as e:
+            err = e
+            raise
+        finally:
+            # A restore that touched the disk is always recorded (even when it then failed: `error` says so). A
+            # rerun that changed nothing and launched nothing new adds no event, so it does not count again.
+            started = any(not l.get("reused") and not l.get("skipped") for l in launched)
+            if touched["disk"] or changed or started or (not prior and err is None):
+                ev = {"event": "rehydrated", "id": rec["id"], "at": iso(time.time()), "path": where}
+                if where and rec["kind"] != "orphan" and os.path.isdir(where):
+                    ev["branch"] = current_branch(where)
+                if not (touched["disk"] or changed):
+                    ev["in_place"] = True
+                if err is not None:
+                    ev["error"] = str(getattr(err, "code", None) or err)[:300]
+                if args.launch:
+                    ev["launched"] = [{k: l.get(k) for k in ("from_session_id", "bg_id", "session_id", "name", "rc",
+                                                             "reused", "skipped", "unconfirmed", "at") if k in l}
+                                      for l in launched]
+                with contextlib.suppress(Exception):
+                    append_manifest(sd, ev)
+            with contextlib.suppress(Exception):
+                write_index(sd)
     out = {"id": rec["id"], "kind": rec["kind"], "path": where, "notes": notes, "resume": resumes, "launched": launched}
     if args.json:
         print(json.dumps(out, indent=1))
@@ -1596,35 +2440,175 @@ def cmd_rehydrate(args):
             print(f"  note: {n}")
         for r in resumes:
             print(f"  resume {r['name'] or r['session_id'][:8]}: {r['command']}"
-                  + ("" if r["transcript"] else "   (no transcript archived; resume will fail)"))
+                  + ("" if r["transcript"] else f"   ({r['problem'] or 'no transcript archived; resume will fail'})"))
         for l in launched:
-            print(f"  launched {l['session_id'][:8]} rc={l['rc']} {l['out']}")
+            if l.get("skipped") and any(l["note"] in n for n in notes):
+                continue  # its reason is a note above
+            if l["reused"]:
+                print(f"  {l['note']}" if l.get("note") else
+                      f"  already running as {l['bg_id']} ({l['name'] or ''}); not started again")
+            elif l.get("note"):
+                print(f"  {l['note']}")
+            else:
+                print(f"  launched as {l['bg_id']} ({l['name'] or ''}); it is in `claude agents`")
 
 
 # ---------------------------------------------------------------- list / show / nudge
 
+def record_repo_name(r):
+    rp = (r.get("repo") or {}).get("path")
+    if rp:
+        return os.path.basename(rp.rstrip("/"))
+    o = (r.get("repo") or {}).get("origin")
+    return re.sub(r"\.git$", "", re.split(r"[/:]", o.rstrip("/"))[-1]) or None if o else None
+
+
+def session_haystack(x):
+    return [x.get("name"), x.get("agent_name"), x.get("title"), x.get("first_prompt"), x.get("session_id"),
+            x.get("bg_id")]
+
+
+def record_haystack(r, only=None):
+    """What `list <words>` searches, lowercased: the record's fields, every session's and the launched-copy ids.
+    `only` (a picker row) keeps the record's fields and that one session's, so each row stays small (DESIGN 7)."""
+    vals = [r["id"], r.get("description"), (r.get("repo") or {}).get("path"), (r.get("repo") or {}).get("origin"),
+            record_repo_name(r), (r.get("worktree") or {}).get("path"), (r.get("worktree") or {}).get("branch")]
+    for x in ([only] if only is not None else r.get("sessions", [])):
+        vals += session_haystack(x)
+    vals += sorted(launched_ids(r))
+    return "\n".join(str(v) for v in vals if v).lower()
+
+
+SEARCH_CAP = 2048  # a picker row's haystack, in characters (the pane's output and store stay far under 4 MiB)
+
+
+def record_ts(r):
+    with contextlib.suppress(Exception):
+        return dt.datetime.fromisoformat(r["at"].replace("Z", "+00:00")).timestamp()
+    return 0.0
+
+
+def age_group(ts, now):
+    """today (same local calendar date), week (< 7 days), month (< 30 days), older. The pane never recomputes it."""
+    if dt.datetime.fromtimestamp(ts).date() == dt.datetime.fromtimestamp(now).date():
+        return "today"
+    age = now - ts
+    return "week" if age < 7 * 86400 else "month" if age < 30 * 86400 else "older"
+
+
+def picker_agents(args, sd):
+    """(agents, "live" | "cached" | "unavailable"): a good listing is cached for when `claude agents` is slow."""
+    cache = os.path.join(sd, "agents-cache.json")
+    try:
+        agents = fetch_agents(args, args.agents_timeout)
+        with contextlib.suppress(Exception):
+            json.dump({"at": iso(time.time()), "agents": agents}, open(cache + ".tmp", "w"))
+            os.replace(cache + ".tmp", cache)
+        return agents, "live"
+    except Exception:
+        with contextlib.suppress(Exception):
+            got = json.load(open(cache))["agents"]
+            if isinstance(got, list):
+                return [a for a in got if isinstance(a, dict)], "cached"
+    return [], "unavailable"
+
+
+def restored_state(r, cur):
+    """True when the record's restore is still standing: for a worktree, leftover dir or main snapshot its last
+    rehydration's path exists; for a session, its linked worktree's does (or, with none, it was rehydrated)."""
+    if r["kind"] == "session":
+        w = cur.get(r.get("linked_worktree_id") or "")
+        if w is None:
+            return bool(r["rehydrations"])
+        r = w
+    evs = [e for e in r.get("rehydrations", []) if not e.get("error") and e.get("path")]
+    return bool(evs) and os.path.isdir(evs[-1]["path"])
+
+
+def restores(r, cur):
+    """How many times the item came back: its own restores (an in-place launch is not one) and, for a session
+    record, its linked worktree's restores that were not made through it."""
+    n = len([e for e in r["rehydrations"] if not e.get("in_place")])
+    w = cur.get(r.get("linked_worktree_id") or "") if r["kind"] == "session" else None
+    if w:
+        n += len([e for e in w["rehydrations"] if not e.get("in_place") and e.get("via") != r["id"]])
+    return n
+
+
+def picker_rows(args, sd):
+    """Flat rows for the rehydrate picker: one per session of each record (its agents name and short id).
+
+    A worktree record and the session record dehydrated with it (`linked_worktree_id`) are one item: the session
+    row stands for both (rehydrating it restores the worktree too), and the worktree shows on its own only for
+    sessions no session record covers, or when that session record was left open (`claude rm` refused)."""
+    now = args.now or time.time()
+    agents, how = picker_agents(args, sd)
+    words = [w.lower() for w in args.words]
+    cur = current_records(sd)
+    folded = {}  # worktree record id -> session ids its linked session records stand for
+    for r in cur.values():
+        if r["kind"] == "session" and r.get("linked_worktree_id") and r.get("removed"):
+            folded.setdefault(r["linked_worktree_id"], set()).update(
+                x.get("session_id") for x in r.get("sessions", []) if isinstance(x, dict))
+    rows = []
+    for r in cur.values():
+        if args.kind and r["kind"] != args.kind:
+            continue
+        ts, wt, extra = record_ts(r), r.get("worktree") or {}, launched_ids(r)
+        restored = restored_state(r, cur)
+        sess = [x for x in r.get("sessions", []) if isinstance(x, dict)]
+        if r["id"] in folded and not args.kind:  # --kind worktree asks for the worktree rows themselves
+            left = [x for x in sess if x.get("session_id") not in folded[r["id"]]]
+            if sess and not left:
+                continue
+            sess = left
+        for x in sess or [{}]:
+            sid = x.get("session_id")
+            name = x.get("name") or x.get("agent_name") or x.get("title") or \
+                os.path.basename((wt.get("path") or "").rstrip("/")) or r["id"]
+            cwd = wt.get("path") or x.get("cwd")
+            # a cached listing may be stale: there only a live row counts as running
+            hit = match_running(agents if how == "live" else [a for a in agents if agent_live(a)], sid, name, cwd, extra)
+            run = running_ref(hit) if hit else None
+            row = {"id": r["id"], "kind": r["kind"], "name": name, "bg_id": x.get("bg_id") or (sid or "")[:8] or None,
+                   "session_id": sid, "group": age_group(ts, now), "dehydrated_at": r["at"], "dehydrated_ts": ts,
+                   "description": (r.get("description") or "")[:400], "first_prompt": (x.get("first_prompt") or "")[:300],
+                   "branch": wt.get("branch"), "repo": record_repo_name(r), "repo_path": (r.get("repo") or {}).get("path"),
+                   "cwd": cwd, "removed": bool(r.get("removed")), "restored": restored, "auto": bool(r.get("auto")),
+                   "rehydrations": restores(r, cur), "running": run}
+            hay = record_haystack(r, only=x)
+            row["search"] = "\n".join(v for v in (name.lower(), ((run or {}).get("bg_id") or "").lower(), hay) if v)[:SEARCH_CAP]
+            if all(w in row["search"] for w in words):
+                rows.append(row)
+    rows.sort(key=lambda x: (-x["dehydrated_ts"], x["id"], x["bg_id"] or ""))
+    return {"now": now, "agents": how, "total": len(rows), "rows": rows[: args.limit or 500]}
+
+
+EMPTY_STORE = "Nothing has been dehydrated yet. /dehydrate closes idle sessions."
+
+
 def cmd_list(args):
     sd = state_dir(args)
+    if args.picker:
+        print(json.dumps(picker_rows(args, sd)))
+        return
     cur = sorted(current_records(sd).values(), key=lambda r: r["at"], reverse=True)
     words = [w.lower() for w in args.words]
-    hits = []
-    for r in cur:
-        vals = [r["id"], r.get("description"), (r.get("repo") or {}).get("path"), (r.get("repo") or {}).get("origin"),
-                (r.get("worktree") or {}).get("path"), (r.get("worktree") or {}).get("branch")]
-        for x in r.get("sessions", []):
-            vals += [x.get("name"), x.get("title"), x.get("first_prompt"), x.get("session_id"), x.get("bg_id")]
-        hay = "\n".join(str(v) for v in vals if v).lower()
-        if all(w in hay for w in words) and (args.kind is None or r["kind"] == args.kind):
-            hits.append(r)
-    hits = hits[: args.limit]
+    hits = [r for r in cur if all(w in record_haystack(r) for w in words) and (args.kind is None or r["kind"] == args.kind)]
+    hits = hits[: args.limit or 50]
     if args.json:
         print(json.dumps(hits, indent=1))
         return
     if not hits:
-        print("no matching dehydrated records")
+        print(EMPTY_STORE if not cur else "no matching dehydrated records")
     for r in hits:
         st = "rehydrated" if r["rehydrations"] else ("removed" if r.get("removed") else "in place")
+        names = ", ".join(f"{x.get('name') or x.get('agent_name') or x.get('title') or '(no name)'}"
+                          f" ({x.get('bg_id') or (x.get('session_id') or '')[:8] or 'no id'})"
+                          for x in r.get("sessions", []) if isinstance(x, dict))
         print(f"{r['id']}  {r['at'][:10]}  {r['kind']:13s} {short((r.get('worktree') or {}).get('path') or (r.get('repo') or {}).get('path') or '')}  [{st}]")
+        if names:
+            print(f"    {names}")
         print(f"    {(r.get('description') or '')[:200]}")
 
 
@@ -1634,20 +2618,21 @@ def cmd_show(args):
 
 def cmd_refresh(args, cfg):
     sd = state_dir(args)
-    if args.detach:
-        if os.fork():
-            return
-        os.setsid()
-        if os.fork():
-            os._exit(0)
-        devnull = os.open(os.devnull, os.O_RDWR)
-        for fd in (0, 1, 2):
-            os.dup2(devnull, fd)
+    if args.detach and not detach():
+        return
     try:
         lock = open(os.path.join(sd, ".refresh.lock"), "w")
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        swept = False
+        stamp = os.path.join(sd, "last-auto")
+        if cfg.get("auto_on_close") and not cfg.get("_config_error") and (
+                not os.path.isfile(stamp) or time.time() - os.path.getmtime(stamp) >= cfg["auto_sweep_minutes"] * 60):
+            open(stamp, "w").write(iso(time.time()))
+            with contextlib.suppress(Exception):
+                a2 = argparse.Namespace(**vars(args), session=None, dry_run=False)
+                swept = any(d["decision"] == "dehydrated" for d in auto_sweep(a2, cfg, sd, "sweep")["decisions"])
         lp = os.path.join(sd, "last-plan.json")
-        if args.if_stale and os.path.isfile(lp) and time.time() - os.path.getmtime(lp) < cfg["refresh_after_hours"] * 3600:
+        if args.if_stale and not swept and os.path.isfile(lp) and time.time() - os.path.getmtime(lp) < cfg["refresh_after_hours"] * 3600:
             return
         plan = build_plan(args, cfg)
         if cfg.get("auto_apply"):
@@ -1665,25 +2650,120 @@ def cmd_refresh(args, cfg):
             os._exit(0)
 
 
+def off_switch_cmd():
+    return f"python3 {shlex.quote(os.path.abspath(__file__))} config set auto_on_close false"
+
+
 def cmd_nudge(args):
+    """At most one DEHYDRATE line per nudge_cooldown_hours, plus config problems in the same throttle, and once
+    (the first nudge with a cached plan after an upgrade to 0.2.0) the line saying auto-on-close is on."""
     try:
         sd = state_dir(args)
         cfg = load_config(sd)
-        stamp = os.path.join(sd, "last-nudged")
-        if os.path.isfile(stamp) and time.time() - os.path.getmtime(stamp) < cfg["nudge_cooldown_hours"] * 3600:
-            return
         lp = os.path.join(sd, "last-plan.json")
         if not os.path.isfile(lp):
             return
-        t = json.load(open(lp))["totals"]
-        n = t["sessions_close"] + t["worktrees_dehydrate"] + t["orphans_archive"]
-        if n:
-            print(f"DEHYDRATE: {t['sessions_close']} sessions and {t['worktrees_dehydrate'] + t['orphans_archive']} "
-                  f"worktrees idle over {cfg['days']}d (about {t['reclaim_kb'] / 2**20:.1f} GB). "
-                  f"Run /dehydrate when this turn's work is done.")
-            open(stamp, "w").write(iso(time.time()))
+        lines = []
+        stamp = os.path.join(sd, "last-nudged")
+        if not (os.path.isfile(stamp) and time.time() - os.path.getmtime(stamp) < cfg["nudge_cooldown_hours"] * 3600):
+            t = json.load(open(lp))["totals"]
+            n = t["sessions_close"] + t["worktrees_dehydrate"] + t["orphans_archive"]
+            if n:
+                lines.append(f"DEHYDRATE: {t['sessions_close']} sessions and {t['worktrees_dehydrate'] + t['orphans_archive']} "
+                             f"worktrees idle over {cfg['days']}d (about {t['reclaim_kb'] / 2**20:.1f} GB). "
+                             f"Run /dehydrate when this turn's work is done.")
+            lines += [f"DEHYDRATE: {w}" for w in config_warnings(cfg)]
+            if lines:
+                open(stamp, "w").write(iso(time.time()))
+        told = os.path.join(sd, "auto-announced")
+        if cfg.get("auto_on_close") and not cfg.get("_config_error") and not os.path.isfile(told):
+            lines.append("DEHYDRATE: auto-dehydrate on close is on: an ended session whose worktree branch is merged "
+                         f"is dehydrated by itself (log: {short(os.path.join(sd, 'auto.log'))}). "
+                         f"Turn it off with: {off_switch_cmd()}")
+            open(told, "w").write(iso(time.time()))
+        if lines:
+            print("\n".join(lines))
     except Exception:
         pass
+
+
+def cmd_config(args):
+    """config: print the effective settings; config get KEY; config set KEY VALUE; config unset KEY."""
+    sd = state_dir(args)
+    p = os.path.join(sd, "config.json")
+    if args.action in (None, "show", "get"):
+        cfg = load_config(sd)
+        if args.action == "get":
+            if not args.key:
+                raise SystemExit("config get KEY")
+            print(json.dumps(cfg.get(args.key)))
+            return 0
+        print(f"config: {short(p)}" + ("" if os.path.isfile(p) else " (none: every key at its default)"))
+        for k in sorted(DEFAULTS):
+            print(f"  {k} = {json.dumps(cfg[k])}" + ("" if cfg[k] == DEFAULTS[k] else "   (default " + json.dumps(DEFAULTS[k]) + ")"))
+        for w in config_warnings(cfg):
+            print(f"WARNING: {w}")
+        return 0
+    if not args.key:
+        raise SystemExit(f"config {args.action} KEY" + (" VALUE" if args.action == "set" else ""))
+    if args.key not in DEFAULTS and args.key not in EXTRA_KEYS:
+        raise SystemExit(f"unknown config key {args.key!r}; keys: {', '.join(sorted(DEFAULTS))}")
+    cur = {}
+    if os.path.isfile(p):
+        try:
+            cur = json.load(open(p))
+        except Exception as e:
+            raise SystemExit(f"{short(p)} is not valid JSON ({e}); fix or remove it first")
+        if not isinstance(cur, dict):
+            raise SystemExit(f"{short(p)} does not hold a JSON object; fix or remove it first")
+    if args.action == "unset":
+        cur.pop(args.key, None)
+    else:
+        if args.value is None:
+            raise SystemExit("config set KEY VALUE")
+        try:
+            v = json.loads(args.value)
+        except ValueError:
+            v = args.value  # a bare word: a string (and then the type check says what it should be)
+        why = config_type_error(args.key, v)
+        if why:
+            raise SystemExit(why)
+        cur[args.key] = v
+    tmp = p + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(cur, f, indent=1, sort_keys=True)
+        f.write("\n")
+    os.replace(tmp, p)
+    cfg = load_config(sd)
+    print(f"{args.key} = {json.dumps(cfg.get(args.key))}  ({short(p)})")
+    return 0
+
+
+def auto_status(args, cfg):
+    sd = state_dir(args)
+    on = cfg.get("auto_on_close") and not cfg.get("_config_error")
+    L = [f"auto-dehydrate on close: {'on' if on else 'off'}"
+         + ("" if on else f" ({'config error' if cfg.get('_config_error') else 'auto_on_close is false'})"),
+         f"  config: {short(os.path.join(sd, 'config.json'))}   turn {'off' if on else 'on'}: "
+         f"python3 {shlex.quote(os.path.abspath(__file__))} config set auto_on_close {'false' if on else 'true'}",
+         f"  grace {cfg['auto_grace_minutes']} min, sweep at most every {cfg['auto_sweep_minutes']} min, "
+         f"gh check {'on' if cfg.get('auto_use_gh') else 'off'}, clean trees only: "
+         f"{'yes' if cfg.get('auto_require_clean') else 'no'}"]
+    stamp = os.path.join(sd, "last-auto")
+    if os.path.isfile(stamp):
+        L.append(f"  last sweep: {iso(os.path.getmtime(stamp))}")
+    with contextlib.suppress(OSError):
+        n = len([f for f in os.listdir(pending_dir(sd)) if f.endswith(".json")])
+        if n:
+            L.append(f"  queued (deferred) sessions: {n}")
+    with contextlib.suppress(Exception):
+        last = open(os.path.join(sd, "auto.log")).readlines()[-1]
+        d = json.loads(last)
+        L.append(f"  last decision: {d.get('at')} {d.get('decision')} {d.get('name') or (d.get('session_id') or '')[:8]}: "
+                 f"{d.get('reason')}")
+    L += [f"WARNING: {w}" for w in config_warnings(cfg)]
+    print("\n".join(L))
+    return 0
 
 
 # ---------------------------------------------------------------- main
@@ -1692,29 +2772,56 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="dehydrate", description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd")
 
-    def common(p):
-        p.add_argument("--days", type=float, help="idle threshold in days (default 7, config 'days')")
+    def common(p, plan_flags=True):
+        hide = (lambda h: h) if plan_flags else (lambda h: argparse.SUPPRESS)  # auto reads them, never takes them
+        p.add_argument("--days", type=float, help=hide("idle threshold in days (default 7, config 'days')"))
         p.add_argument("--roots", nargs="+", help="dirs to search for repos (default ~/src)")
-        p.add_argument("--only", nargs="+", help="limit to these worktree paths/basenames/branches or session ids")
-        p.add_argument("--no-sessions", action="store_true", help="leave sessions alone")
-        p.add_argument("--no-worktrees", action="store_true", help="leave worktrees alone")
-        p.add_argument("--mains", action="store_true", help="also snapshot uncommitted work in main checkouts (never resets them)")
-        p.add_argument("--no-main", action="store_true", help="skip main-checkout snapshots even if config enables them")
-        p.add_argument("--state-dir", help="manifest/archive dir (default ~/.claude/dehydrated)")
+        p.add_argument("--only", nargs="+", help=hide("limit to these worktree paths/basenames/branches or session ids"))
+        p.add_argument("--no-sessions", action="store_true", help=hide("leave sessions alone"))
+        p.add_argument("--no-worktrees", action="store_true", help=hide("leave worktrees alone"))
+        p.add_argument("--mains", action="store_true",
+                       help=hide("also snapshot uncommitted work in main checkouts (never resets them)"))
+        p.add_argument("--no-main", action="store_true", help=hide("skip main-checkout snapshots even if config enables them"))
+        p.add_argument("--state-dir", help="manifest/archive dir (default $DEHYDRATE_HOME or ~/.claude/dehydrated)")
         p.add_argument("--claude-home", help="Claude config dir (default ~/.claude)")
         p.add_argument("--agents-json", default=os.environ.get("DEHYDRATE_AGENTS_JSON"),
                        help="read sessions from this file instead of `claude agents --json --all`")
-        p.add_argument("--claude-bin", default=os.environ.get("DEHYDRATE_CLAUDE_BIN", "claude"))
+        p.add_argument("--claude-bin", default=os.environ.get("DEHYDRATE_CLAUDE_BIN", "claude"), help=argparse.SUPPRESS)
         p.add_argument("--now", type=float, default=float(os.environ["DEHYDRATE_NOW"]) if os.environ.get("DEHYDRATE_NOW") else None,
                        help="epoch seconds to treat as now (tests)")
-        p.add_argument("--json", action="store_true")
+        p.add_argument("--json", action="store_true", help="print JSON")
 
-    for name in ("plan", "apply", "refresh"):
-        p = sub.add_parser(name)
-        common(p)
+    desc = {
+        "plan": "Read-only census: which sessions and worktrees are idle past the window, which are held and why, "
+                "and what apply would do. Deterministic for the same machine state and --now.",
+        "apply": "Do what plan says: snapshot each stale worktree (ref + bundle + archives), record it, then remove "
+                 "it and close its sessions with claude stop/rm. Needs --yes. Exit 1: some items not done; 3: "
+                 "paused at the disk floor.",
+        "refresh": "Rewrite <state>/last-plan.json, what the SessionStart nudge reads (the hook runs it detached). "
+                   "With auto_on_close it first runs the auto sweep, at most once per auto_sweep_minutes.",
+        "auto": "Auto-dehydrate on close. Dehydrates a session that has ended (a background session done or failed "
+                "at least auto_grace_minutes ago, or the one --session names, once its process exits) when its "
+                "cwd is a linked worktree whose branch is merged into origin's default branch: contained in it "
+                "with commits of its own, or merging it changes nothing and its changes are already there "
+                "(squash or rebase merge), or gh shows a PR from it merged at exactly its HEAD. Not live, not "
+                "this session, every plan hold kept. Every decision is a line in <state>/auto.log. Rehydrated "
+                "items wait until they run and end again. Off: `config set auto_on_close false`; --status says "
+                "whether it is on.",
+    }
+    for name in ("plan", "apply", "refresh", "auto"):
+        p = sub.add_parser(name, help=desc[name].split(". ")[0], description=desc[name])
+        common(p, plan_flags=name != "auto")
+        if name in ("refresh", "auto"):
+            p.add_argument("--detach", action="store_true", help="fork into the background and return at once (hooks)")
+            p.add_argument("--gh-bin", default=os.environ.get("DEHYDRATE_GH_BIN", "gh"),
+                           help="gh for the merged-PR check (config auto_use_gh)")
         if name == "refresh":
-            p.add_argument("--detach", action="store_true")
-            p.add_argument("--if-stale", action="store_true")
+            p.add_argument("--if-stale", action="store_true", help="rebuild the plan only when it is over "
+                                                                   "refresh_after_hours old")
+        if name == "auto":
+            p.add_argument("--session", help="only this session id (the mod's session.end kick); waits for it to exit")
+            p.add_argument("--dry-run", action="store_true", help="print the decisions, change nothing")
+            p.add_argument("--status", action="store_true", help="say whether auto is on, the last sweep and decision")
         if name == "apply":
             p.add_argument("--yes", action="store_true", help="required: apply acts without a prompt")
         if name in ("plan", "apply"):
@@ -1722,32 +2829,63 @@ def main(argv=None):
                            help="disk-pressure mode: ignore --days for worktrees, go least recently active first, "
                                 "stop once free disk reaches --target-gb (every hold still applies)")
             p.add_argument("--target-gb", type=float, help="with --pressure: stop when free disk is at least this")
-    p = sub.add_parser("list")
-    p.add_argument("words", nargs="*")
+    p = sub.add_parser("list", help="search what was dehydrated",
+                       description="Search the manifest: every word must appear (case-insensitive) in a record's id, "
+                                   "description, session names, titles and first prompts, branch, repo, paths or "
+                                   "session ids. No words: the newest 50.")
+    p.add_argument("words", nargs="*", help="words that must all match")
     p.add_argument("--kind", choices=["worktree", "session", "orphan", "main-snapshot"])
-    p.add_argument("--limit", type=int, default=50)
+    p.add_argument("--limit", type=int, help="most records shown (default 50; 500 with --picker)")
     p.add_argument("--state-dir")
-    p.add_argument("--json", action="store_true")
-    p = sub.add_parser("show")
-    p.add_argument("key")
+    p.add_argument("--json", action="store_true", help="full records as JSON")
+    p.add_argument("--picker", action="store_true", help="flat JSON rows for the rehydrate picker (one per session)")
+    p.add_argument("--agents-json", default=os.environ.get("DEHYDRATE_AGENTS_JSON"))
+    p.add_argument("--agents-timeout", type=float, default=20, help="seconds for `claude agents --json` (--picker)")
+    p.add_argument("--claude-bin", default=os.environ.get("DEHYDRATE_CLAUDE_BIN", "claude"), help=argparse.SUPPRESS)
+    p.add_argument("--claude-home")
+    p.add_argument("--now", type=float, default=float(os.environ["DEHYDRATE_NOW"]) if os.environ.get("DEHYDRATE_NOW") else None,
+                   help="epoch seconds to treat as now (tests)")
+    p = sub.add_parser("show", help="print one manifest record", description="Print one manifest record as JSON.")
+    p.add_argument("key", help="the same keys rehydrate takes")
     p.add_argument("--state-dir")
-    p = sub.add_parser("rehydrate")
-    p.add_argument("key", help="manifest id, session id (or first 8), background id, branch or worktree path")
+    p = sub.add_parser("rehydrate", help="bring a dehydrated worktree and its sessions back",
+                       description="Recreate a dehydrated worktree at its path on its branch with every uncommitted, "
+                                   "untracked and gitignored file, restore swept transcripts, and print the resume "
+                                   "commands. Every archive file is checked before anything changes. A worktree "
+                                   "already restored at its path is left as it is (--launch still launches). "
+                                   "--launch resumes each session with claude --bg --resume unless a copy runs.")
+    p.add_argument("key", help="manifest id, session id (or first 8), background id, exact claude agents name, "
+                               "branch or worktree path")
     p.add_argument("--path", help="restore the worktree here instead of its original path")
     p.add_argument("--session-only", action="store_true", help="restore the transcript only, not the worktree")
-    p.add_argument("--launch", action="store_true", help="resume the sessions in the background (claude --bg --resume)")
+    p.add_argument("--launch", action="store_true",
+                   help="resume the sessions in the background (claude --bg --resume) unless a copy already runs")
     p.add_argument("--state-dir")
     p.add_argument("--claude-home")
-    p.add_argument("--claude-bin", default=os.environ.get("DEHYDRATE_CLAUDE_BIN", "claude"))
-    p.add_argument("--json", action="store_true")
-    p = sub.add_parser("nudge")
+    p.add_argument("--claude-bin", default=os.environ.get("DEHYDRATE_CLAUDE_BIN", "claude"), help=argparse.SUPPRESS)
+    p.add_argument("--agents-json", default=os.environ.get("DEHYDRATE_AGENTS_JSON"))
+    p.add_argument("--json", action="store_true", help="print the result (or {error}) as JSON")
+    p = sub.add_parser("nudge", help="SessionStart hook: one throttled DEHYDRATE line",
+                       description="SessionStart hook: print one DEHYDRATE line when the cached plan has work, at most "
+                                   "once per nudge_cooldown_hours. Never fails.")
     p.add_argument("--state-dir")
     p.add_argument("--claude-home")
+    p.add_argument("--claude-bin", help=argparse.SUPPRESS)
+    p = sub.add_parser("config", help="show or change config.json",
+                       description="Show the effective settings (no action), get one, or set/unset one in "
+                                   "<state>/config.json ($DEHYDRATE_HOME or ~/.claude/dehydrated). Other keys are kept. "
+                                   "Values are JSON (true, false, 10, [\"~/src\"]) and are type-checked.")
+    p.add_argument("action", nargs="?", choices=["show", "get", "set", "unset"])
+    p.add_argument("key", nargs="?")
+    p.add_argument("value", nargs="?")
+    p.add_argument("--state-dir")
+    p.add_argument("--claude-home", help=argparse.SUPPRESS)
+    p.add_argument("--claude-bin", help=argparse.SUPPRESS)
 
     args = ap.parse_args(argv)
     if not args.cmd:
         args = ap.parse_args(["plan"] + (argv or sys.argv[1:]))
-    if os.environ.get("CLAUDE_CODE_REMOTE") == "true" and args.cmd in ("plan", "apply", "refresh"):
+    if os.environ.get("CLAUDE_CODE_REMOTE") == "true" and args.cmd in ("plan", "apply", "refresh", "auto"):
         print("dehydrate is local-desktop only (cloud sessions have no ~/src or background sessions)")
         return 0
     if args.cmd == "list":
@@ -1755,9 +2893,17 @@ def main(argv=None):
     if args.cmd == "show":
         return cmd_show(args)
     if args.cmd == "rehydrate":
-        return cmd_rehydrate(args)
+        try:
+            return cmd_rehydrate(args)
+        except SystemExit as e:
+            if args.json and isinstance(e.code, str):  # the picker reads the reason from JSON
+                print(json.dumps({"error": e.code}))
+                return 1
+            raise
     if args.cmd == "nudge":
         return cmd_nudge(args)
+    if args.cmd == "config":
+        return cmd_config(args)
     sd = state_dir(args)
     cfg = load_config(sd)
     if args.days is not None:
@@ -1770,6 +2916,10 @@ def main(argv=None):
         cfg["snapshot_main"] = True
     if args.cmd == "refresh":
         return cmd_refresh(args, cfg)
+    if args.cmd == "auto":
+        if args.status:
+            return auto_status(args, cfg)
+        return cmd_auto(args, cfg)
     if getattr(args, "pressure", False) != (getattr(args, "target_gb", None) is not None):
         ap.error("--pressure and --target-gb go together")
     if getattr(args, "pressure", False) and (args.only or args.target_gb <= 0):

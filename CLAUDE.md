@@ -103,4 +103,9 @@ space is under `target-gb`. Tests: `python3 -m unittest discover -s plugins/disk
 Closes stale Claude Code sessions and git worktrees without losing work: snapshots each idle
 worktree into a ref, bundle and tarballs, archives transcripts, records a user-level manifest,
 then removes the worktree and closes the session. `/rehydrate` restores it exactly and resumes.
-A SessionStart hook nudges when stale sessions pile up.
+A SessionStart hook nudges when stale sessions pile up. Since 0.2.0 a mod (`hooks/register.tsx`, listed
+under `modules` in `hooks.json`) opens a searchable picker on a bare `/rehydrate`, grouped by age, and Enter
+relaunches the session with `claude --bg --resume` (never a duplicate of a listed session). A `session.end`
+hook runs a detached `dehydrate.py auto` that dehydrates the ended session only when its branch is merged
+into the remote default branch; `dehydrate.py config set auto_on_close false` turns it off.
+Tests: `python3 -m unittest discover -s plugins/dehydrate/tests`; `claude plugin test plugins/dehydrate`.

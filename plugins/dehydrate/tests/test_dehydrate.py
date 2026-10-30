@@ -5,6 +5,7 @@ known states, a fake ~/.claude (transcripts, jobs), a fake `claude` binary that 
 fixed --now 30 days in the future so "stale" never depends on the wall clock.
 """
 import gzip
+import contextlib
 import json
 import os
 import shutil
@@ -19,8 +20,12 @@ SCRIPT = os.path.join(HERE, "..", "scripts", "dehydrate.py")
 NOW = time.time() + 30 * 86400
 ENV = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@x", GIT_COMMITTER_NAME="t",
            GIT_COMMITTER_EMAIL="t@x", GIT_CONFIG_GLOBAL="/dev/null", GIT_CONFIG_NOSYSTEM="1")
-for k in ("CLAUDE_CODE_SESSION_ID", "CLAUDE_JOB_DIR", "DEHYDRATE_HOME", "CLAUDE_CONFIG_DIR"):
-    ENV.pop(k, None)
+for k in [k for k in ENV if k.startswith(("DEHYDRATE_", "FAKE_"))] + ["CLAUDE_CODE_SESSION_ID", "CLAUDE_JOB_DIR",
+                                                                       "CLAUDE_CONFIG_DIR"]:
+    ENV.pop(k, None)  # a sandbox shell (make_fixture's exports) must not leak into the tests
+FAKE_CLAUDE = os.path.join(HERE, "fake_claude.sh")
+FAKE_GH = os.path.join(HERE, "fake_gh.sh")  # exits 1 without $FAKE_GH_JSON: no test reaches the real gh
+SLOW_FETCH_S = 180  # fetch budget for the merge rule in tests (a fail-closed case sets its own 1 s)
 
 
 def sh(cwd, *a, check=True):
@@ -154,6 +159,8 @@ exit 0
         cmd = [sys.executable, SCRIPT, *a]
         if a[0] in ("plan", "apply", "refresh"):
             cmd += ["--roots", self.src, "--agents-json", self.agents, "--now", str(NOW)]
+        if a[0] == "refresh":
+            cmd += ["--gh-bin", FAKE_GH]
         if a[0] not in ("list", "show", "nudge"):
             cmd += ["--claude-home", self.home, "--claude-bin", self.claude]
         if a[0] == "nudge":
@@ -297,9 +304,17 @@ class DehydrateTests(unittest.TestCase):
         # list finds it by words from the description and shows it rehydrated
         lst = json.loads(f.run("list", "widget", "--json").stdout)
         self.assertTrue(any(r["id"] == rec["id"] and r["rehydrations"] for r in lst))
-        # rehydrating onto an existing path refuses
-        r = f.run("rehydrate", rec["id"], check=False)
+        # a rerun while it is still restored there changes nothing (review: no silent extra rehydration)
+        n = len([x for x in open(os.path.join(f.state, "manifest.jsonl")) if '"rehydrated"' in x])
+        r = f.run("rehydrate", rec["id"])
+        self.assertIn(f"already restored at {d}, nothing changed", r.stdout)
+        self.assertEqual(len([x for x in open(os.path.join(f.state, "manifest.jsonl")) if '"rehydrated"' in x]), n)
+        # rehydrating onto a path that holds something else refuses
+        other = os.path.join(f.root, "taken")
+        os.makedirs(other)
+        r = f.run("rehydrate", rec["id"], "--path", other, check=False)
         self.assertNotEqual(r.returncode, 0)
+        self.assertIn("already exists", r.stdout + r.stderr)
 
     def test_rehydrate_unpushed_after_branch_deleted(self):
         f = self.f
@@ -567,6 +582,783 @@ class DehydrateTests(unittest.TestCase):
         self.assertTrue(res["pruned"] and all(x["ok"] for x in res["pruned"]))
         self.assertTrue(os.path.isfile(os.path.join(f.state, "index.md")))
         self.assertTrue(os.path.isdir(timed_out[0]))         # captured, not removed, rerun-able
+
+
+# ---- 0.2.0: the merge rule, auto-dehydrate on close, list --picker, rehydrate --launch (DESIGN 8.1)
+
+def load_module():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("dehydrate_mini", SCRIPT)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class Mini:
+    """A small fixture: a bare origin, a clone on main, worktrees made per test, a fake ~/.claude, and the fake
+    claude and gh bins driven by env. Cheaper than Fixture, so each auto test builds only what it checks."""
+
+    def __init__(self):
+        self.root = tempfile.mkdtemp(prefix="dehydrate-mini-")
+        r = self.root
+        self.src, self.home, self.state = (os.path.join(r, x) for x in ("src", "claude", "state"))
+        self.repo, self.bare = os.path.join(self.src, "app"), os.path.join(r, "origin.git")
+        os.makedirs(self.src)
+        os.makedirs(self.state)
+        sh(r, "git", "init", "-q", "--bare", "-b", "main", self.bare)
+        sh(self.src, "git", "clone", "-q", self.bare, self.repo)
+        write(os.path.join(self.repo, "a.txt"), "a\n")
+        write(os.path.join(self.repo, "b.txt"), "line1\nline2\nline3\n")
+        sh(self.repo, "git", "add", "-A")
+        sh(self.repo, "git", "commit", "-qm", "init")
+        sh(self.repo, "git", "push", "-q", "origin", "HEAD:main")
+        self.agents = os.path.join(r, "agents.json")
+        self.rows = []
+        json.dump([], open(self.agents, "w"))
+        self.config({})
+        self.log = os.path.join(r, "claude-calls.log")
+        self.env = dict(ENV, FAKE_CLAUDE_LOG=self.log)
+
+    def config(self, extra):
+        # a local bare-remote fetch can pass the 30 s default on a loaded host; the rule would fail closed
+        json.dump(dict({"disk_floor_gb": 0, "auto_fetch_timeout_s": SLOW_FETCH_S}, **extra),
+                  open(os.path.join(self.state, "config.json"), "w"))
+
+    def wt(self, name, commits=(), path=None):
+        p = path or os.path.join(self.repo, ".claude", "worktrees", name)
+        sh(self.repo, "git", "worktree", "add", "-q", "-b", f"wt-{name}", p, "main")
+        for i, (fn, text) in enumerate(commits):
+            write(os.path.join(p, fn), text)
+            sh(p, "git", "add", "-A")
+            sh(p, "git", "commit", "-qm", f"{name} {i}")
+        return os.path.realpath(p)
+
+    def main_commit(self, fn, text):
+        write(os.path.join(self.repo, fn), text)
+        sh(self.repo, "git", "add", "-A")
+        sh(self.repo, "git", "commit", "-qm", f"main {fn}")
+        sh(self.repo, "git", "push", "-q", "origin", "main")
+
+    def merge(self, name, how="no-ff"):
+        b = f"wt-{name}"
+        if how == "no-ff":
+            sh(self.repo, "git", "merge", "-q", "--no-ff", "-m", f"merge {name}", b)
+        elif how == "ff":
+            sh(self.repo, "git", "merge", "-q", "--ff-only", b)
+        elif how == "squash":
+            sh(self.repo, "git", "merge", "-q", "--squash", b)
+            sh(self.repo, "git", "commit", "-qm", f"squash {name}")
+        elif how == "rebase":
+            for c in sh(self.repo, "git", "rev-list", "--reverse", f"main..{b}").split():
+                sh(self.repo, "git", "cherry-pick", c)
+        sh(self.repo, "git", "push", "-q", "origin", "main")
+
+    def session(self, sid, bid, cwd, name, state="done", kind="background", pid=None, ended=None, listed=True):
+        ended = ended or time.time() - 3600
+        pd = os.path.join(self.home, "projects", cwd.replace("/", "-").replace(".", "-"))
+        tp = os.path.join(pd, f"{sid}.jsonl")
+        write(tp, json.dumps({"type": "user", "cwd": cwd, "sessionId": sid, "origin": {"kind": "human"},
+                              "message": {"role": "user", "content": f"please {name}"}}) + "\n")
+        os.utime(tp, (ended, ended))
+        if bid:
+            sp = os.path.join(self.home, "jobs", bid, "state.json")
+            write(sp, json.dumps({"state": state, "sessionId": sid}))
+            os.utime(sp, (ended, ended))
+        if listed:
+            row = {"id": bid, "sessionId": sid, "name": name, "cwd": cwd, "kind": kind, "startedAt": int((ended - 60) * 1000)}
+            row.update({"state": state} if kind == "background" else {"status": "idle"})
+            if pid:
+                row["pid"] = pid
+            self.rows.append(row)
+            json.dump(self.rows, open(self.agents, "w"))
+        return tp
+
+    def run(self, *a, env=None, check=True):
+        cmd = [sys.executable, SCRIPT, *a]
+        if a[0] in ("auto", "refresh", "plan", "apply"):
+            cmd += ["--roots", self.src, "--agents-json", self.agents]
+        if a[0] in ("auto", "refresh"):
+            cmd += ["--gh-bin", FAKE_GH]
+        if a[0] != "show":
+            cmd += ["--claude-home", self.home, "--claude-bin", FAKE_CLAUDE]
+        cmd += ["--state-dir", self.state]
+        r = subprocess.run(cmd, capture_output=True, text=True, env=dict(self.env, **(env or {})), cwd=self.root,
+                           timeout=600)
+        if check and r.returncode != 0:
+            raise AssertionError(f"{a} rc={r.returncode}\n{r.stdout}\n{r.stderr}")
+        return r
+
+    def records(self):
+        p = os.path.join(self.state, "manifest.jsonl")
+        return [json.loads(x) for x in open(p)] if os.path.exists(p) else []
+
+    def auto_log(self):
+        p = os.path.join(self.state, "auto.log")
+        return [json.loads(x) for x in open(p)] if os.path.exists(p) else []
+
+    def calls(self):
+        return open(self.log).read().splitlines() if os.path.exists(self.log) else []
+
+    def cleanup(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+
+class AutoAndPickerTests(unittest.TestCase):
+    def setUp(self):
+        self.m = Mini()
+
+    def tearDown(self):
+        self.m.cleanup()
+
+    def rule(self, path, env=None, **cfg):
+        from unittest import mock
+        d = load_module()
+        with mock.patch.dict(os.environ, dict(ENV, **(env or {})), clear=True):
+            return d.merge_rule(path, dict(d.DEFAULTS, **dict({"auto_fetch_timeout_s": SLOW_FETCH_S}, **cfg)), FAKE_GH)
+
+    def test_merge_rule_scenarios(self):
+        m = self.m
+        ff = m.wt("ff", [("ff.txt", "ff\n")])
+        m.merge("ff", "ff")
+        squash = m.wt("squash", [("s1.txt", "1\n"), ("s2.txt", "2\n")])
+        m.merge("squash", "squash")
+        rebase = m.wt("rebase", [("r.txt", "r\n")])
+        m.main_commit("other.txt", "o\n")
+        m.merge("rebase", "rebase")
+        dirty = m.wt("dirty", [("d.txt", "d\n")])
+        m.merge("dirty", "no-ff")
+        write(os.path.join(dirty, "scratch.txt"), "uncommitted\n")
+        write(os.path.join(dirty, "a.txt"), "edited\n")
+        opn = m.wt("open", [("o.txt", "open\n")])
+        sqp = m.wt("squashplus", [("sp.txt", "1\n")])
+        m.merge("squashplus", "squash")
+        write(os.path.join(sqp, "sp.txt"), "2\n")
+        sh(sqp, "git", "commit", "-qam", "after the squash")
+        fresh = m.wt("fresh")
+        det = os.path.join(m.repo, ".claude", "worktrees", "det")
+        sh(m.repo, "git", "worktree", "add", "-q", "--detach", det, "main")
+        want = {ff: "ancestor", squash: "merge-tree", rebase: "merge-tree", dirty: "ancestor"}
+        for path, by in want.items():
+            got = self.rule(path)
+            self.assertTrue(got["merged"], (path, got))
+            self.assertEqual(got["by"], by, path)
+            self.assertEqual(got["default_branch"], "main")
+        for path, why in ((opn, "commits not in"), (sqp, "commits not in"), (fresh, "no commits of its own"),
+                          (m.repo, "main checkout"), (det, "detached")):
+            got = self.rule(path)
+            self.assertFalse(got["merged"], (path, got))
+            self.assertIn(why, got["reason"], path)
+        self.assertFalse(self.rule(dirty, auto_require_clean=True)["merged"])
+        self.assertTrue(self.rule(ff, auto_require_clean=True)["merged"])
+        # the default branch itself, checked out in a linked worktree
+        sh(m.repo, "git", "checkout", "-q", "--detach")
+        dflt = os.path.join(m.root, "on-main")
+        sh(m.repo, "git", "worktree", "add", "-q", dflt, "main")
+        self.assertIn("default branch", self.rule(dflt)["reason"])
+
+    def test_merge_rule_gh_recovers_conflicting_squash(self):
+        m = self.m
+        g = m.wt("gh", [("b.txt", "line1\nCHANGED\nline3\n")])
+        m.merge("gh", "squash")
+        m.main_commit("b.txt", "line1\nAGAIN\nline3\n")  # the default branch edits the squashed lines later
+        head = sh(g, "git", "rev-parse", "HEAD")
+        self.assertFalse(self.rule(g, auto_use_gh=False)["merged"])
+        self.assertFalse(self.rule(g)["merged"])  # fake gh exits 1: not merged
+        pr = {"number": 620, "headRefOid": head, "baseRefName": "main", "mergedAt": "2026-10-29T10:00:00Z"}
+        got = self.rule(g, env={"FAKE_GH_JSON": json.dumps([pr])})
+        self.assertEqual((got["merged"], got["by"], got["pr"]), (True, "gh-pr", 620))
+        for bad in (dict(pr, headRefOid="0" * 40), dict(pr, baseRefName="develop")):
+            self.assertFalse(self.rule(g, env={"FAKE_GH_JSON": json.dumps([bad])})["merged"], bad)
+
+    def test_merge_rule_fails_closed(self):
+        m = self.m
+        w = m.wt("hang", [("h.txt", "h\n")])
+        m.merge("hang", "ff")
+        self.assertTrue(self.rule(w)["merged"])
+        hang = os.path.join(m.root, "hang-upload-pack")
+        write(hang, "#!/bin/sh\nexec sleep 30 2>/dev/null\n")  # holds none of our pipes
+        os.chmod(hang, 0o755)
+        sh(m.repo, "git", "remote", "set-head", "origin", "main")
+        sh(m.repo, "git", "config", "remote.origin.uploadpack", hang)
+        t0 = time.time()
+        got = self.rule(w, auto_fetch_timeout_s=1)
+        self.assertFalse(got["merged"])
+        self.assertIn("timed out", got["reason"])
+        self.assertLess(time.time() - t0, 20)  # bounded by the timeout, not the 30 s hang (slow host: wide margin)
+        sh(m.repo, "git", "config", "--unset", "remote.origin.uploadpack")
+        sh(m.repo, "git", "remote", "remove", "origin")
+        got = self.rule(w)
+        self.assertFalse(got["merged"])
+        self.assertIn("no origin", got["reason"])
+
+    def test_auto_sweep_dehydrates_only_merged(self):
+        m = self.m
+        wts = {k: m.wt(k, [(f"{k}.txt", k + "\n")]) for k in ("merged", "open", "merged2", "merged3", "merged4")}
+        hermes = m.wt("t_x", [("t.txt", "t\n")], path=os.path.join(m.repo, ".worktrees", "t_x"))
+        for k in ("merged", "merged2", "merged3", "merged4", "t_x"):
+            m.merge(k)
+        S = {"A": "aaaaaaaa-0000-0000-0000-00000000000a", "B": "bbbbbbbb-0000-0000-0000-00000000000b",
+             "C": "cccccccc-0000-0000-0000-00000000000c", "D": "dddddddd-0000-0000-0000-00000000000d",
+             "E": "eeeeeeee-0000-0000-0000-00000000000e", "F": "ffffffff-0000-0000-0000-00000000000f",
+             "G": "99999999-0000-0000-0000-000000000009"}
+        m.session(S["A"], "aaaaaaaa", wts["merged"], "merged work")
+        m.session(S["B"], "bbbbbbbb", wts["open"], "open work")
+        m.session(S["C"], "cccccccc", wts["merged2"], "waiting on owner", state="blocked")
+        m.session(S["D"], "dddddddd", wts["merged3"], "still has a pid", pid=os.getpid())
+        m.session(S["E"], None, os.path.join(wts["merged4"]), "cwd-3c", kind="interactive", pid=os.getpid())
+        m.session(S["F"], "ffffffff", wts["merged4"], "next to an open terminal")
+        m.session(S["G"], "99999999", hermes, "hermes task")
+        out = json.loads(m.run("auto", "--json").stdout)
+        dec = {d["session_id"]: d for d in out["decisions"]}
+        self.assertEqual(dec[S["A"]]["decision"], "dehydrated", dec[S["A"]])
+        self.assertEqual([k for k, s in S.items() if dec.get(s, {}).get("decision") == "dehydrated"], ["A"])
+        self.assertIn("not merged", dec[S["B"]]["reason"])
+        self.assertIn("blocked", dec[S["C"]]["reason"])
+        self.assertIn("pid", dec[S["D"]]["reason"])
+        self.assertIn("interactive session cwd-3c is open", dec[S["F"]]["reason"])
+        self.assertIn("excluded", dec[S["G"]]["reason"])
+        self.assertNotIn(S["E"], dec)  # an interactive session is never a sweep candidate
+        self.assertFalse(os.path.exists(wts["merged"]))
+        for k in ("open", "merged2", "merged3", "merged4"):
+            self.assertTrue(os.path.isdir(wts[k]), k)
+        self.assertTrue(os.path.isdir(hermes))
+        recs = [r for r in m.records() if r.get("event") == "dehydrated"]
+        self.assertEqual(sorted(r["kind"] for r in recs), ["session", "worktree"])
+        for r in recs:
+            self.assertEqual(r["auto"], {"trigger": "sweep", "merged_by": "ancestor", "pr": None,
+                                         "default_branch": "main"})
+        wrec = [r for r in recs if r["kind"] == "worktree"][0]
+        self.assertEqual(wrec["worktree"]["branch"], "wt-merged")
+        self.assertEqual(wrec["sessions"][0]["name"], "merged work")
+        self.assertIn("rm aaaaaaaa", m.calls())
+        self.assertFalse(any(x.startswith("rm ") and "aaaaaaaa" not in x for x in m.calls()), m.calls())
+        logged = {d["session_id"]: d for d in m.auto_log()}
+        self.assertEqual(logged[S["A"]]["decision"], "dehydrated")
+        self.assertEqual(logged[S["B"]]["decision"], "refused")
+        self.assertTrue(all(k in logged[S["B"]] for k in ("at", "session_id", "bg_id", "name", "decision", "reason")))
+        # the next sweep does not log the same refusals again (A's row goes, as `claude rm` drops it)
+        json.dump([x for x in m.rows if x["sessionId"] != S["A"]], open(m.agents, "w"))
+        n = len(m.auto_log())
+        m.run("auto", "--json")
+        self.assertEqual(len(m.auto_log()), n)
+
+    def test_auto_grace_and_rate_limit(self):
+        m = self.m
+        w = m.wt("g", [("g.txt", "g\n")])
+        m.merge("g")
+        t = time.time() - 3600
+        sid = "abababab-0000-0000-0000-000000000001"
+        m.session(sid, "abababab", w, "graceful", ended=t)
+        r = json.loads(m.run("auto", "--json", "--now", str(t + 300)).stdout)
+        self.assertEqual(r["decisions"][0]["decision"], "refused")
+        self.assertIn("ended 5m ago", r["decisions"][0]["reason"])
+        self.assertTrue(os.path.isdir(w))
+        # SessionStart refresh sweeps at most once per auto_sweep_minutes
+        m.run("refresh", "--now", str(t + 300))
+        self.assertTrue(os.path.isfile(os.path.join(m.state, "last-auto")))
+        n = len(m.auto_log())
+        m.run("refresh", "--now", str(t + 900))
+        self.assertTrue(os.path.isdir(w))
+        self.assertEqual(len(m.auto_log()), n)
+        old = time.time() - 3600
+        os.utime(os.path.join(m.state, "last-auto"), (old, old))
+        m.run("refresh", "--now", str(t + 900))
+        self.assertFalse(os.path.exists(w))
+        self.assertEqual(m.auto_log()[-1]["decision"], "dehydrated")
+
+    def test_auto_off_switch(self):
+        m = self.m
+        w = m.wt("off", [("o.txt", "o\n")])
+        m.merge("off")
+        m.session("acacacac-0000-0000-0000-000000000001", "acacacac", w, "switched off")
+        m.config({"auto_on_close": False})
+        self.assertIn("auto_on_close is off", m.run("auto").stdout)
+        m.run("refresh")
+        self.assertTrue(os.path.isdir(w))
+        self.assertEqual(m.records(), [])
+        for f in ("auto.log", "last-auto"):
+            self.assertFalse(os.path.exists(os.path.join(m.state, f)), f)
+        self.assertEqual(m.calls(), [])
+
+    def test_auto_session_mode(self):
+        m = self.m
+        merged, opn = m.wt("im", [("i.txt", "i\n")]), m.wt("io", [("j.txt", "j\n")])
+        m.merge("im")
+        p = subprocess.Popen(["true"])
+        p.wait()  # a pid that has exited: the session's process is gone
+        sids = {"im": "12121212-0000-0000-0000-000000000001", "io": "12121212-0000-0000-0000-000000000002"}
+        for k, w in (("im", merged), ("io", opn)):
+            m.session(sids[k], None, w, "", kind="interactive", ended=time.time(), listed=False)
+            write(os.path.join(m.home, "sessions", f"{p.pid}{k}.json"),
+                  json.dumps({"pid": p.pid, "sessionId": sids[k], "cwd": w, "name": f"terminal {k}", "kind": "interactive"}))
+        env = {"DEHYDRATE_AUTO_WAIT_S": "2"}
+        r = json.loads(m.run("auto", "--session", sids["im"], "--json", env=env).stdout)
+        self.assertEqual([d["decision"] for d in r["decisions"]], ["dehydrated"], r)
+        self.assertFalse(os.path.exists(merged))
+        rec = [x for x in m.records() if x.get("event") == "dehydrated"][0]
+        self.assertEqual(rec["kind"], "worktree")
+        self.assertEqual(rec["auto"]["trigger"], "session.end")
+        self.assertEqual(rec["sessions"][0]["session_id"], sids["im"])
+        self.assertEqual(rec["sessions"][0]["name"], "terminal im")  # the name it had, for the picker
+        r = json.loads(m.run("auto", "--session", sids["io"], "--json", env=env).stdout)
+        self.assertEqual(r["decisions"][0]["decision"], "refused")
+        self.assertIn("not merged", r["decisions"][0]["reason"])
+        self.assertTrue(os.path.isdir(opn))
+
+    def test_auto_session_mode_background_and_dry_run(self):
+        """The kick runs with the ending session's env; a background target is still the target."""
+        m = self.m
+        w = m.wt("bgk", [("k.txt", "k\n")])
+        m.merge("bgk")
+        sid = "34343434-0000-0000-0000-000000000001"
+        m.session(sid, "34343434", w, "kicked", ended=time.time())  # just ended: no grace in --session mode
+        env = {"DEHYDRATE_AUTO_WAIT_S": "1", "CLAUDE_CODE_SESSION_ID": sid,
+               "CLAUDE_JOB_DIR": os.path.join(m.home, "jobs", "34343434")}
+        r = json.loads(m.run("auto", "--session", sid, "--dry-run", "--json", env=env).stdout)
+        self.assertEqual((r["decisions"][0]["decision"], r["decisions"][0]["dry_run"]), ("dehydrate", True))
+        self.assertTrue(os.path.isdir(w))
+        self.assertEqual((m.records(), m.auto_log()), ([], []))
+        r = json.loads(m.run("auto", "--session", sid, "--json", env=env).stdout)
+        self.assertEqual(r["decisions"][0]["decision"], "dehydrated", r)
+        self.assertFalse(os.path.exists(w))
+        self.assertIn("rm 34343434", m.calls())
+
+    # ---- list --picker
+
+    def put(self, *recs):
+        with open(os.path.join(self.m.state, "manifest.jsonl"), "a") as f:
+            for r in recs:
+                f.write(json.dumps(dict({"event": "dehydrated", "schema": 1}, **r)) + "\n")
+
+    def iso(self, ts):
+        import datetime as dt
+        return dt.datetime.fromtimestamp(ts, dt.timezone.utc).isoformat(timespec="seconds")
+
+    def picker(self, *words, env=None, extra=()):
+        return json.loads(self.m.run("list", "--picker", *words, *extra, env=env).stdout)
+
+    def test_list_picker_shape_and_groups(self):
+        import datetime as dt
+        now = dt.datetime(2026, 10, 15, 12, 0).timestamp()  # local noon: -1h stays on the same date
+        H, D = 3600, 86400
+        self.put({"id": "r1", "kind": "worktree", "at": self.iso(now - H), "description": "alpha work",
+                  "repo": {"path": "/x/src/vault", "origin": "git@github.com:getfatday/vault.git"},
+                  "worktree": {"path": "/x/src/vault/.claude/worktrees/alpha", "branch": "wt-alpha"}, "removed": True,
+                  "auto": {"trigger": "sweep"},
+                  "sessions": [{"session_id": "aaaa1111-0", "bg_id": "aaaa1111", "name": "alpha sprites",
+                                "first_prompt": "make the sprites"},
+                               {"session_id": "bbbb2222-0", "bg_id": "bbbb2222", "name": "beta second"}]},
+                 {"id": "r2", "kind": "session", "at": self.iso(now - 3 * D), "repo": {"path": "/x/src/product-portfolio"},
+                  "sessions": [{"session_id": "cccc3333-0", "bg_id": "cccc3333", "title": "capacity plan"}]},
+                 {"id": "r3", "kind": "worktree", "at": self.iso(now - 20 * D),
+                  "repo": {"path": None, "origin": "git@github.com:getfatday/dotfiles.git"},
+                  "worktree": {"path": "/x/dotfiles/.claude/worktrees/wt-gamma", "branch": "wt-gamma"}, "sessions": []},
+                 {"id": "r4", "kind": "orphan", "at": self.iso(now - 90 * D), "repo": {"path": "/x/src/vault"},
+                  "worktree": {"path": "/x/src/vault/.claude/worktrees/left", "branch": None}})
+        out = self.picker(extra=("--now", str(now), "--agents-json", self.m.agents))
+        self.assertEqual(out["agents"], "live")
+        rows = out["rows"]
+        self.assertEqual([(r["id"], r["bg_id"], r["group"]) for r in rows],
+                         [("r1", "aaaa1111", "today"), ("r1", "bbbb2222", "today"), ("r2", "cccc3333", "week"),
+                          ("r3", None, "month"), ("r4", None, "older")])
+        self.assertEqual(set(rows[0]), {"id", "kind", "name", "bg_id", "session_id", "group", "dehydrated_at",
+                                        "dehydrated_ts", "description", "first_prompt", "branch", "repo", "repo_path",
+                                        "cwd", "removed", "restored", "auto", "rehydrations", "running", "search"})
+        self.assertEqual(out["total"], 5)
+        by = {(r["id"], r["bg_id"]): r for r in rows}
+        self.assertEqual(by[("r1", "bbbb2222")]["name"], "beta second")
+        self.assertEqual(by[("r2", "cccc3333")]["name"], "capacity plan")  # title is the fallback
+        self.assertEqual(by[("r3", None)]["name"], "wt-gamma")            # then the worktree basename
+        self.assertEqual(by[("r3", None)]["repo"], "dotfiles")             # repo from the origin URL
+        self.assertTrue(by[("r1", "aaaa1111")]["auto"] and by[("r1", "aaaa1111")]["removed"])
+        self.assertIsNone(by[("r1", "aaaa1111")]["running"])
+        hits = self.picker("dotfiles", extra=("--now", str(now), "--agents-json", self.m.agents))["rows"]
+        self.assertEqual([r["id"] for r in hits], ["r3"])
+        hits = self.picker("product-portfolio", extra=("--now", str(now), "--agents-json", self.m.agents))["rows"]
+        self.assertEqual([r["id"] for r in hits], ["r2"])
+        # list <words> searches the same haystack
+        self.assertEqual([r["id"] for r in json.loads(self.m.run("list", "dotfiles", "--json").stdout)], ["r3"])
+
+    def test_list_picker_agents_cache(self):
+        m = self.m
+        self.put({"id": "r1", "kind": "session", "at": self.iso(time.time()), "repo": {"path": m.repo},
+                  "sessions": [{"session_id": "aaaa1111-0", "bg_id": "aaaa1111", "name": "alpha", "cwd": m.repo}]})
+        slow = {"FAKE_AGENTS_SLEEP": "5"}
+        out = self.picker(env=slow, extra=("--agents-timeout", "1"))
+        self.assertEqual(out["agents"], "unavailable")
+        self.assertIsNone(out["rows"][0]["running"])
+        live = os.path.join(m.root, "live.json")
+        json.dump([{"id": "aaaa1111", "sessionId": "aaaa1111-0", "pid": 4242, "name": "alpha", "cwd": m.repo}],
+                  open(live, "w"))
+        out = self.picker(env={"FAKE_AGENTS_JSON": live})
+        self.assertEqual(out["agents"], "live")
+        self.assertEqual(out["rows"][0]["running"], {"bg_id": "aaaa1111", "session_id": "aaaa1111-0", "state": None,
+                                                     "live": True})
+        out = self.picker(env=slow, extra=("--agents-timeout", "1"))
+        self.assertEqual(out["agents"], "cached")
+        self.assertEqual(out["rows"][0]["running"]["bg_id"], "aaaa1111")
+
+    # ---- rehydrate --launch
+
+    def session_record(self, rid, sid, bid, name):
+        m = self.m
+        m.session(sid, bid, m.repo, name, listed=False)
+        self.put({"id": rid, "kind": "session", "at": self.iso(time.time()), "repo": {"path": m.repo},
+                  "worktree": None, "linked_worktree_id": None, "removed": True,
+                  "sessions": [{"session_id": sid, "bg_id": bid, "name": name, "cwd": m.repo}]})
+
+    def test_launch_records_copy_and_dedupes(self):
+        m = self.m
+        sid, copy = "cdcdcdcd-0000-0000-0000-000000000001", "1be4ed48-0000-0000-0000-000000000009"
+        self.session_record("r1", sid, "cdcdcdcd", "Sess one")
+        write(os.path.join(m.home, "jobs", "1be4ed48", "state.json"), json.dumps({"sessionId": copy}))
+        env = {"FAKE_AGENTS_JSON": m.agents, "FAKE_BG_ID": "1be4ed48"}
+        out = json.loads(m.run("rehydrate", "r1", "--launch", "--json", env=env).stdout)
+        l = out["launched"][0]
+        self.assertEqual((l["bg_id"], l["session_id"], l["reused"], l["note"]), ("1be4ed48", copy, False, None))
+        self.assertIn(f"--bg --resume {sid} -n Sess one", m.calls())
+        ev = [r for r in m.records() if r.get("event") == "rehydrated"][-1]
+        self.assertEqual(ev["launched"][0]["bg_id"], "1be4ed48")
+        self.assertEqual(ev["launched"][0]["from_session_id"], sid)
+        # the copy is live now: a second --launch reuses it and starts nothing
+        json.dump([{"id": "1be4ed48", "sessionId": copy, "pid": 4242, "name": "Sess one", "cwd": m.repo,
+                    "kind": "background", "state": "working"}], open(m.agents, "w"))
+        out = json.loads(m.run("rehydrate", "r1", "--launch", "--json", env=env).stdout)
+        self.assertEqual((out["launched"][0]["bg_id"], out["launched"][0]["reused"]), ("1be4ed48", True))
+        self.assertEqual(sum("--bg" in c for c in m.calls()), 1)
+        row = self.picker(env=env)["rows"][0]
+        self.assertEqual(row["running"], {"bg_id": "1be4ed48", "session_id": copy, "state": "working", "live": True})
+        self.assertIn("1be4ed48", row["search"])
+        # same name in the same cwd also counts as running
+        self.session_record("r2", "efefefef-0000-0000-0000-000000000001", "efefefef", "Named two")
+        rows = json.load(open(m.agents)) + [{"id": "77777777", "sessionId": "77777777-0", "pid": 4343,
+                                             "name": "Named two", "cwd": m.repo, "kind": "interactive"}]
+        json.dump(rows, open(m.agents, "w"))
+        out = json.loads(m.run("rehydrate", "r2", "--launch", "--json", env=env).stdout)
+        self.assertEqual((out["launched"][0]["bg_id"], out["launched"][0]["reused"]), ("77777777", True))
+        self.assertEqual(sum("--bg" in c for c in m.calls()), 1)
+
+    def test_launch_fails_closed_when_agents_unreadable(self):
+        m = self.m
+        sid = "fafafafa-0000-0000-0000-000000000001"
+        self.session_record("r1", sid, "fafafafa", "Sess three")
+        r = m.run("rehydrate", "r1", "--launch", env={"FAKE_AGENTS_FAIL": "1"})
+        self.assertIn("could not check claude agents; not launched", r.stdout)
+        self.assertIn(f"claude --bg --resume {sid}", r.stdout)
+        self.assertFalse(any("--bg" in c for c in m.calls()))
+        out = json.loads(m.run("rehydrate", "r1", "--launch", "--json", env={"FAKE_AGENTS_FAIL": "1"}).stdout)
+        self.assertIsNone(out["launched"][0]["bg_id"])
+        # an error with --json comes back as JSON (the picker reads it)
+        r = m.run("rehydrate", "nope", "--json", check=False)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("no manifest record", json.loads(r.stdout)["error"])
+
+
+class ReviewFixTests(unittest.TestCase):
+    """The 0.2.0 review findings: merge evidence, picker folding and restored state, repeat and in-place rehydrate,
+    launch records, auto after a rehydrate, the lock queue, config checks, one clock. One Mini fixture each."""
+
+    def setUp(self):
+        self.m = Mini()
+
+    def tearDown(self):
+        self.m.cleanup()
+
+    rule = AutoAndPickerTests.rule
+    put = AutoAndPickerTests.put
+    iso = AutoAndPickerTests.iso
+
+    def merged_session(self, name, sid, bid, how="ff", interactive=False):
+        """A worktree merged into main with an ended session bound to it, auto-dehydrated -> (path, worktree id)."""
+        m = self.m
+        w = m.wt(name, [(f"{name}.txt", name + "\n")])
+        m.merge(name, how)
+        m.session(sid, bid, w, f"merged {name}", ended=time.time() - 3600)
+        out = json.loads(m.run("auto", "--json").stdout)
+        self.assertEqual([d["decision"] for d in out["decisions"] if d["session_id"] == sid], ["dehydrated"], out)
+        rid = [r["id"] for r in m.records() if r.get("event") == "dehydrated" and r["kind"] == "worktree"
+               and r["worktree"]["path"] == w][0]
+        return w, rid
+
+    def events(self, rid):
+        return [r for r in self.m.records() if r.get("event") == "rehydrated" and r["id"] == rid]
+
+    def test_merge_rule_needs_evidence_of_a_merge(self):
+        m = self.m
+        rev = m.wt("rev", [("r.txt", "real work\n")])
+        sh(rev, "git", "revert", "--no-edit", "HEAD")
+        undo = m.wt("undo", [("u.txt", "draft\n")])
+        os.unlink(os.path.join(undo, "u.txt"))
+        sh(undo, "git", "add", "-A")
+        sh(undo, "git", "commit", "-qm", "park")
+        sqe = m.wt("sqe", [("e.txt", "e\n")])
+        m.merge("sqe", "squash")
+        sh(sqe, "git", "commit", "-q", "--allow-empty", "-m", "notes in a message only")
+        ra = m.wt("ra", [("lost.txt", "only in the reflog\n")])
+        sh(ra, "git", "reset", "-q", "--hard", "origin/main")
+        for path, why in ((rev, "change nothing in total"), (undo, "change nothing in total"),
+                          (sqe, "a commit with no changes"), (ra, "no commits of its own")):
+            got = self.rule(path)
+            self.assertFalse(got["merged"], (path, got))
+            self.assertIn(why, got["reason"], path)
+        # the gh check names origin's repo (-R), the remote the git checks fetched
+        d = load_module()
+        sh(m.repo, "git", "remote", "set-url", "origin", "git@github.com:getfatday/app.git")
+        log = os.path.join(m.root, "gh.log")
+        with mock_env(FAKE_GH_LOG=log):
+            d.gh_merged_pr(rev, "wt-rev", "main", "0" * 40, FAKE_GH)
+        self.assertIn("pr list -R github.com/getfatday/app --head wt-rev", open(log).read())
+        self.assertEqual(d.gh_repo_arg("https://github.expedia.biz/eg/x.git"), "github.expedia.biz/eg/x")
+
+    def test_picker_folds_linked_worktree_restored_and_capped(self):
+        m = self.m
+        now = time.time()
+        live_dir = os.path.join(m.root, "restored-here")
+        os.makedirs(live_dir)
+        long_prompt = "q" * 1500
+        self.put(
+            {"id": "w1", "kind": "worktree", "at": self.iso(now - 60), "repo": {"path": m.repo},
+             "worktree": {"path": live_dir, "branch": "wt-a"}, "removed": True,
+             "sessions": [{"session_id": "s1-0", "bg_id": "s1s1s1s1", "name": "alpha"},
+                          {"session_id": "s9-0", "name": "terminal only", "first_prompt": long_prompt}]},
+            {"id": "s1", "kind": "session", "at": self.iso(now - 60), "repo": {"path": m.repo},
+             "worktree": {"path": live_dir, "branch": "wt-a"}, "linked_worktree_id": "w1", "removed": True,
+             "sessions": [{"session_id": "s1-0", "bg_id": "s1s1s1s1", "name": "alpha"}]},
+            {"id": "w2", "kind": "worktree", "at": self.iso(now - 120), "repo": {"path": m.repo},
+             "worktree": {"path": "/x/gone", "branch": "wt-b"}, "removed": True,
+             "sessions": [{"session_id": "s2-0", "bg_id": "s2s2s2s2", "name": "beta"}]},
+            {"id": "s2", "kind": "session", "at": self.iso(now - 120), "repo": {"path": m.repo},
+             "worktree": {"path": "/x/gone", "branch": "wt-b"}, "linked_worktree_id": "w2", "removed": False,
+             "sessions": [{"session_id": "s2-0", "bg_id": "s2s2s2s2", "name": "beta"}]})
+        with open(os.path.join(m.state, "manifest.jsonl"), "a") as f:
+            f.write(json.dumps({"event": "rehydrated", "id": "w1", "at": self.iso(now), "path": live_dir}) + "\n")
+        out = self.picker_rows()
+        got = [(r["id"], r["bg_id"]) for r in out["rows"]]
+        # w1's alpha row folds into s1; its terminal-only session has no session record and stays; w2 stays
+        # beside s2 because `claude rm` refused s2 (removed false)
+        self.assertEqual(sorted(got), sorted([("s1", "s1s1s1s1"), ("w1", "s9-0"[:8]), ("w2", "s2s2s2s2"),
+                                              ("s2", "s2s2s2s2")]))
+        by = {(r["id"], r["bg_id"]): r for r in out["rows"]}
+        self.assertTrue(by[("s1", "s1s1s1s1")]["restored"])
+        self.assertTrue(by[("w1", "s9-0")]["restored"])
+        self.assertFalse(by[("w2", "s2s2s2s2")]["restored"])
+        self.assertEqual(out["total"], 4)
+        self.assertNotIn("qqqq", by[("s1", "s1s1s1s1")]["search"])  # another session's prompt is not copied in
+        self.assertLessEqual(len(by[("w1", "s9-0")]["search"]), 2048)
+        self.assertEqual(self.picker_rows(extra=("--limit", "1"))["total"], 4)
+        # text list: names and short ids; exact agents name is a key; empty store text
+        txt = m.run("list").stdout
+        self.assertIn("alpha (s1s1s1s1)", txt)
+        self.assertEqual(json.loads(m.run("show", "beta").stdout)["id"], "s2")  # the session record wins
+        os.unlink(os.path.join(m.state, "manifest.jsonl"))
+        self.assertEqual(m.run("list").stdout.strip(), "Nothing has been dehydrated yet. /dehydrate closes idle sessions.")
+        self.assertEqual(m.run("list", "zzz").stdout.strip(), "Nothing has been dehydrated yet. /dehydrate closes idle sessions.")
+
+    def picker_rows(self, extra=()):
+        return json.loads(self.m.run("list", "--picker", "--agents-json", self.m.agents, *extra).stdout)
+
+    def test_rehydrate_repeat_in_place_and_corrupt_transcript(self):
+        m = self.m
+        sid = "d1d1d1d1-0000-0000-0000-000000000001"
+        w, rid = self.merged_session("rep", sid, "d1d1d1d1")
+        json.dump([], open(m.agents, "w"))  # `claude rm` dropped its row
+        m.run("rehydrate", rid)
+        self.assertTrue(os.path.isdir(w))
+        self.assertEqual(len(self.events(rid)), 1)
+        write(os.path.join(w, "edit.txt"), "made after the restore\n")
+        r = m.run("rehydrate", rid)
+        self.assertIn(f"already restored at {w}, nothing changed", r.stdout)
+        self.assertEqual(len(self.events(rid)), 1)  # a no-op is not another rehydration
+        self.assertTrue(os.path.isfile(os.path.join(w, "edit.txt")))
+        row = [x for x in self.picker_rows()["rows"] if x["cwd"] == w]
+        self.assertEqual(len(row), 1, row)  # the worktree folds into its session's row
+        self.assertEqual((row[0]["kind"], row[0]["restored"], row[0]["rehydrations"]), ("session", True, 1))
+        # Enter on the restored row: launch only, recorded as in place
+        out = json.loads(m.run("rehydrate", rid, "--launch", "--json", env={"FAKE_AGENTS_JSON": m.agents}).stdout)
+        self.assertEqual(out["launched"][0]["bg_id"], "1be4ed48")
+        self.assertIn("already restored", out["notes"][0])
+        self.assertTrue(self.events(rid)[-1]["in_place"])
+        row = [x for x in self.picker_rows()["rows"] if x["cwd"] == w][0]
+        self.assertEqual(row["rehydrations"], 1)
+        # transcript swept and its archived copy corrupt: the worktree still comes back, the event is recorded,
+        # the session is not launched, and the reason is in the JSON
+        rec = [x for x in m.records() if x.get("event") == "dehydrated" and x["id"] == rid][0]
+        for dp, _, fs in os.walk(os.path.join(m.home, "projects")):
+            for f in fs:
+                if sid in f:
+                    os.unlink(os.path.join(dp, f))
+        import gzip
+        with gzip.open(rec["sessions"][0]["transcript_copy"], "wb") as g:
+            g.write(b"corrupted\n")
+        sh(m.repo, "git", "worktree", "remove", "--force", w)
+        n = len(self.events(rid))
+        r = m.run("rehydrate", rid, "--launch", "--json", env={"FAKE_AGENTS_JSON": m.agents})
+        out = json.loads(r.stdout)
+        self.assertTrue(os.path.isdir(w))
+        self.assertTrue(any("fails its checksum" in x for x in out["notes"]), out)
+        self.assertEqual([(l["skipped"], l["bg_id"]) for l in out["launched"]], [(True, None)])
+        self.assertEqual(len(self.events(rid)), n + 1)
+        self.assertNotIn("in_place", self.events(rid)[-1])
+
+    def test_launch_without_an_id_is_recorded_and_not_repeated(self):
+        m = self.m
+        sid = "e1e1e1e1-0000-0000-0000-000000000001"
+        m.session(sid, "e1e1e1e1", m.repo, "Quiet one", listed=False)
+        self.put({"id": "r1", "kind": "session", "at": self.iso(time.time()), "repo": {"path": m.repo},
+                  "worktree": None, "linked_worktree_id": None, "removed": True,
+                  "sessions": [{"session_id": sid, "bg_id": "e1e1e1e1", "name": "Quiet one", "cwd": m.repo}]})
+        silent = os.path.join(m.root, "silent-claude")
+        write(silent, f"#!/bin/sh\necho \"$*\" >> {m.log}\ncase \"$1\" in agents) echo '[]';; esac\nexit 0\n")
+        os.chmod(silent, 0o755)
+
+        def launch(env=None):
+            cmd = [sys.executable, SCRIPT, "rehydrate", "r1", "--launch", "--json", "--claude-home", m.home,
+                   "--claude-bin", silent, "--state-dir", m.state]
+            return json.loads(subprocess.run(cmd, capture_output=True, text=True, env=dict(m.env, **(env or {})),
+                                             cwd=m.root).stdout)["launched"][0]
+        first = launch()
+        self.assertTrue(first["unconfirmed"])
+        self.assertNotIn(": .", first["note"])
+        second = launch()
+        self.assertTrue(second["skipped"])
+        self.assertIn("reported no id", second["note"])
+        self.assertEqual(sum("--bg" in c for c in m.calls()), 1)
+        launch(env={"DEHYDRATE_UNCONFIRMED_WINDOW_S": "0"})  # past the window it tries again
+        self.assertEqual(sum("--bg" in c for c in m.calls()), 2)
+
+    def test_match_running_counts_listed_and_stateful_rows(self):
+        d = load_module()
+        done = {"id": "aa", "sessionId": "aa-0", "state": "done", "name": "n", "cwd": "/tmp"}
+        working = {"id": "bb", "sessionId": "bb-0", "state": "working", "name": "w", "cwd": "/tmp"}
+        self.assertIs(d.match_running([done], "aa-0", "x", "/nowhere"), done)  # listed at all: still open
+        self.assertFalse(d.running_ref(done)["live"])
+        self.assertIs(d.match_running([working], "zz", "w", "/tmp"), working)  # no pid, but working
+        self.assertIsNone(d.match_running([done], "zz", "n", "/tmp"))  # a done stranger of the same name
+        self.assertIs(d.match_running([done], "zz", "x", "/x", extra_ids={"aa"}), done)
+
+    def test_auto_leaves_a_rehydrated_session_until_it_runs_again(self):
+        m = self.m
+        sid = "f2f2f2f2-0000-0000-0000-000000000001"
+        w, rid = self.merged_session("back", sid, "f2f2f2f2", how="squash")
+        m.run("rehydrate", rid)  # the agents row is still listed, done
+        out = json.loads(m.run("auto", "--dry-run", "--json").stdout)
+        d = [x for x in out["decisions"] if x["session_id"] == sid][0]
+        self.assertEqual(d["decision"], "refused")
+        self.assertIn("not used since", d["reason"])
+        tp = [os.path.join(dp, f) for dp, _, fs in os.walk(os.path.join(m.home, "projects")) for f in fs if sid in f][0]
+        later = time.time() + 120
+        os.utime(tp, (later, later))  # it ran (its transcript moved on) and ended
+        out = json.loads(m.run("auto", "--dry-run", "--json", "--now", str(later + 900)).stdout)
+        self.assertEqual([x["decision"] for x in out["decisions"] if x["session_id"] == sid], ["dehydrate"])
+
+    def test_auto_kick_defers_on_a_held_lock_and_the_next_run_drains_it(self):
+        import fcntl
+        m = self.m
+        w = m.wt("lk", [("l.txt", "l\n")])
+        m.merge("lk")
+        sid = "a3a3a3a3-0000-0000-0000-000000000001"
+        m.session(sid, None, w, "", kind="interactive", ended=time.time(), listed=False)
+        env = {"DEHYDRATE_AUTO_WAIT_S": "1", "DEHYDRATE_AUTO_LOCK_WAIT_S": "1"}
+        for lock in (".auto.lock", ".lock"):
+            held = open(os.path.join(m.state, lock), "w")
+            fcntl.flock(held, fcntl.LOCK_EX)
+            out = json.loads(m.run("auto", "--session", sid, "--json", env=env).stdout)
+            held.close()
+            self.assertEqual([x["decision"] for x in out["decisions"]], ["deferred"], (lock, out))
+            self.assertTrue(os.path.isdir(w))
+            self.assertEqual(os.listdir(os.path.join(m.state, "auto-pending")), [sid + ".json"])
+            self.assertEqual(m.auto_log()[-1]["decision"], "deferred")
+            if lock == ".auto.lock":
+                os.unlink(os.path.join(m.state, "auto-pending", sid + ".json"))
+        out = json.loads(m.run("auto", "--json").stdout)  # a sweep (SessionStart) drains the queue
+        self.assertEqual([(x["decision"], x["trigger"]) for x in out["decisions"]],
+                         [("dehydrated", "session.end (deferred)")])
+        self.assertFalse(os.path.exists(w))
+        self.assertEqual(os.listdir(os.path.join(m.state, "auto-pending")), [])
+
+    def test_config_types_unknown_keys_cli_and_status(self):
+        m = self.m
+        d = load_module()
+        w = m.wt("cf", [("c.txt", "c\n")])
+        m.merge("cf")
+        m.session("b4b4b4b4-0000-0000-0000-000000000001", "b4b4b4b4", w, "configured")
+        m.config({"auto_on_close": "false", "auto_on_clsoe": False, "auto_apply": "true"})
+        cfg = d.load_config(m.state)
+        self.assertIn("auto_on_close must be true or false", cfg["_config_error"])
+        self.assertIs(cfg["auto_apply"], False)  # a string never turns a switch on
+        self.assertEqual(cfg["_config_unknown"], ["auto_on_clsoe"])
+        r = m.run("auto", "--dry-run")
+        self.assertIn("auto: nothing ran (config error", r.stdout)
+        self.assertIn("auto_on_clsoe", r.stdout)
+        self.assertIn("auto-dehydrate on close: off (config error)", m.run("auto", "--status").stdout)
+        self.assertNotEqual(m.run("config", "set", "auto_on_close", '"false"', check=False).returncode, 0)
+        self.assertNotEqual(m.run("config", "set", "auto_on_clsoe", "false", check=False).returncode, 0)
+        m.config({"days": 3})
+        m.run("config", "set", "auto_on_close", "false")
+        self.assertEqual(json.load(open(os.path.join(m.state, "config.json"))),
+                         {"days": 3, "auto_on_close": False, "disk_floor_gb": 0, "auto_fetch_timeout_s": SLOW_FETCH_S})
+        self.assertIn("auto_on_close is off", m.run("auto").stdout)
+        self.assertTrue(m.run("auto", "--status").stdout.startswith("auto-dehydrate on close: off (auto_on_close is false)"))
+        write(os.path.join(m.state, "config.json"), "not json")
+        r = m.run("config", "set", "auto_on_close", "true", check=False)
+        self.assertIn("is not valid JSON", r.stderr)
+        self.assertNotIn("Traceback", r.stderr)
+        # the nudge says once that auto is on, with the off switch (it honours $DEHYDRATE_HOME via --state-dir)
+        os.unlink(os.path.join(m.state, "config.json"))
+        write(os.path.join(m.state, "last-plan.json"), json.dumps({"totals": {
+            "sessions_close": 0, "worktrees_dehydrate": 0, "orphans_archive": 0, "reclaim_kb": 0}}))
+        first, second = m.run("nudge").stdout, m.run("nudge").stdout
+        self.assertIn("auto-dehydrate on close is on", first)
+        self.assertIn("config set auto_on_close false", first)
+        self.assertEqual(second, "")
+        h = " ".join(m.run("auto", "--help").stdout.split())
+        self.assertIn("merged into origin's default branch", h)
+        self.assertNotIn("--days", h)
+
+    def test_record_id_and_at_share_a_clock(self):
+        m = self.m
+        w = m.wt("clk", [("k.txt", "k\n")])
+        m.merge("clk")
+        m.session("c5c5c5c5-0000-0000-0000-000000000001", "c5c5c5c5", w, "clocked")
+        later = time.time() + 40 * 86400
+        m.run("auto", "--json", "--now", str(later))
+        rec = [r for r in m.records() if r.get("event") == "dehydrated" and r["kind"] == "worktree"][0]
+        import datetime as dt
+        day = dt.datetime.fromtimestamp(later, dt.timezone.utc).strftime("%Y%m%d")
+        self.assertTrue(rec["id"].startswith(day), rec["id"])
+        self.assertEqual(rec["at"][:10].replace("-", ""), day)
+
+
+@contextlib.contextmanager
+def mock_env(**kw):
+    old = {k: os.environ.get(k) for k in kw}
+    os.environ.update(kw)
+    try:
+        yield
+    finally:
+        for k, v in old.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
+class WorktreePathTests(unittest.TestCase):
+    def test_worktree_path_from_state_json(self):
+        """agents rows carry no worktreePath on 2.1.312; the job's state.json does, and the guard must see it."""
+        f = Fixture()
+        try:
+            sid = f.sessions["main"][0]
+            write(os.path.join(f.home, "jobs", "b0000003", "state.json"),
+                  json.dumps({"state": "blocked", "worktreePath": f.wt["locked"], "intent": "the old question"}))
+            r = f.run("apply", "--yes", "--only", sid, check=False)
+            self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+            self.assertIn("Claude-managed worktree", r.stdout)
+            calls = open(f.calls).read().splitlines() if os.path.exists(f.calls) else []
+            self.assertNotIn("rm b0000003", calls)
+            self.assertTrue(os.path.isdir(f.wt["locked"]))
+        finally:
+            f.cleanup()
 
 
 if __name__ == "__main__":
