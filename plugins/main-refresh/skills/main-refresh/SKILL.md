@@ -25,6 +25,28 @@ This skill wraps one script. Run it, read the one MAIN_REFRESH line it prints, a
 MAIN_REFRESH_FIX line if there is one. The script decides safety before it changes anything, so
 running `check` is always free.
 
+## When the repository ships its own script
+
+The hook runs the repository's `scripts/main-refresh.sh` when the repository has one, and the
+plugin's copy only when it has none. Check with `ls scripts/main-refresh.sh` in the repository root.
+
+When the repository ships the script, every `MAIN_REFRESH` line in the conversation comes from that
+script, not from the plugin's copy. Follow these rules there:
+
+- Run a `MAIN_REFRESH_FIX` line as printed, from the repository root. The repository's lines use
+  relative paths such as `scripts/main-refresh.sh unenroll`, so they fail from any other directory.
+- Use the repository's `check`, `apply` and `park`. Do not run the plugin's copy in that repository.
+  The plugin's `park` on a path the repository's script refused to move makes a full worktree and
+  leaves the change only on a `wip/main-<date>-<n>` branch.
+- Read the repository's own docs for lines this skill does not list, such as ENROLLED, SIPHONED,
+  SIPHON_BLOCKED, RETIRED_CLEARED, DIRTY_MAIN, PARKED_WORK, DRAIN_PENDING and DRAIN_STUCK.
+- The repository's `apply` can enroll, siphon and restore listed paths and remove a stale lock
+  before it prints BLOCKED. A BLOCKED line there does not mean nothing changed.
+
+The rest of this page describes the plugin's own copy only: the absolute-path claim for FIX lines,
+the commands and states tables, the park section, the invariants, and the notes on what a hook
+changed.
+
 ## Run it
 
 From any checkout of the repository (the main checkout or any worktree):
@@ -108,6 +130,7 @@ it, open a PR from it, or delete it when it has served its purpose.
 - Never stash. The stash stack is shared by every worktree and session, and a bare stash can be
   popped by someone else. Parking uses a branch, which has a name and an owner.
 - Never delete a lock. A LOCKED state names the file and the age; removing it is the person's call.
+  (The plugin's copy never removes a lock. A repository's script may remove a stale one.)
 - Never reset without parking first. Main only moves after the bytes it would overwrite are in a
   commit on a named branch.
 - Everything is reversible. Parked branches are plain branches; `git log <branch>` shows what was
@@ -149,7 +172,8 @@ string match), strip the trailing `# comment` first, or the comparison will not 
 ## When a hook printed a MAIN_REFRESH line
 
 The plugin's UserPromptSubmit hook runs `apply --quiet` on every prompt in repositories that have
-at least one Claude worktree. An `APPLIED` line means main just moved; nothing to do. A `BLOCKED`
-or `DIVERGED` line means the hook changed nothing and is asking for a decision. Surface the line
+at least one Claude worktree. An `APPLIED` line means main just moved; nothing to do. With the plugin's own copy, a `BLOCKED`
+or `DIVERGED` line means the hook changed nothing and is asking for a decision. With a repository
+script, it can already have changed other listed paths (see above). Surface the line
 to the user, explain the state in one sentence, and offer the FIX command. Do not run `park`
 without telling the user what it will move.

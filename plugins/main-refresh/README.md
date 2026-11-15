@@ -60,6 +60,11 @@ After `park` moves local-only commits off a diverged main, it prints a `WARNING`
 branch and saying the commits are only on that branch and need a pull request, then a
 `MAIN_REFRESH_FIX` line with the `git push -u origin <branch>` command.
 
+When the repository ships its own script, every `MAIN_REFRESH` line you see comes from that
+script. Run its FIX lines as printed from the repository root, use the repository's `check`,
+`apply` and `park`, and do not run the plugin's copy there. The absolute-path claim for FIX lines,
+the exit codes, the state list and the invariants on this page describe the plugin's copy only.
+
 ## Invariants
 
 Never stash. Never delete a lock. Never reset main without parking first. Parked work lives on

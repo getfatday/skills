@@ -152,6 +152,16 @@ check "park still exits 0" "exit=0" "$(echo "$out" | tail -1)"
 check "the local-only commit is reachable from the parked branch" "local-only" "$(/usr/bin/git -C "$tmp/dv" log -1 --format=%s "$branch")"
 check "main equals origin/main after park" "$(/usr/bin/git -C "$tmp/dv" rev-parse origin/main)" "$(/usr/bin/git -C "$tmp/dv" rev-parse main)"
 
+echo "== hook budget and docs"
+plugin_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+t="$(python3 -I -c 'import json,sys;print(json.load(open(sys.argv[1]))["hooks"]["UserPromptSubmit"][0]["hooks"][0]["timeout"])' "$plugin_dir/hooks/hooks.json")"
+if [[ "$t" -ge 120 ]]; then r=yes; else r=no; fi
+check "hook timeout covers three passes of the repository's script (>= 120 s)" yes "$r"
+if grep -q "well under a second" "$plugin_dir/hooks/hooks.json"; then r=stale; else r=ok; fi
+check "hooks.json description no longer claims under a second" ok "$r"
+if grep -q "^## When the repository ships its own script" "$plugin_dir/skills/main-refresh/SKILL.md"; then r=yes; else r=no; fi
+check "SKILL.md has the repository-script section" yes "$r"
+
 echo
 echo "passed=$pass failed=$fail"
 [[ "$fail" -eq 0 ]]
