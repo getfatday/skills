@@ -50,6 +50,16 @@ command, strip the trailing `# comment` first.
 repositories without an origin or a Claude worktree, debounces a background `git fetch` to once
 per 300 s, then runs `apply --quiet` and forwards the output. Exit 0 on every path.
 
+The hook runs the repository's own `scripts/main-refresh.sh` when it ships one, and the plugin's
+copy only when it ships none. A copy that has `scripts/main-refresh-paths.txt` beside it wins, and
+when both the working checkout and the main worktree have one, the main worktree's copy runs. When
+neither has the paths file, the working checkout's copy runs, then the main worktree's. `detect`
+always runs the plugin's copy. Test the choice with `bash plugins/main-refresh/tests/test-main-refresh.sh`.
+
+After `park` moves local-only commits off a diverged main, it prints a `WARNING` line naming the
+branch and saying the commits are only on that branch and need a pull request, then a
+`MAIN_REFRESH_FIX` line with the `git push -u origin <branch>` command.
+
 ## Invariants
 
 Never stash. Never delete a lock. Never reset main without parking first. Parked work lives on

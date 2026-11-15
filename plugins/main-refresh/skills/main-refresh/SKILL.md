@@ -94,9 +94,11 @@ On DIVERGED: the same branch is created at the current main HEAD, so every local
 reachable from it. Dirty and colliding files are committed on top when there are any. Main is
 then reset to origin/main, because a fast-forward is impossible when histories differ. Output is
 `PARKED <n> path(s) and <k> commit(s) on branch <branch> at <dir>` followed by
-`APPLIED main reset to origin/main <sha>`.
+`APPLIED main reset to origin/main <sha>`, then a `WARNING` line that names the branch and says the
+commits are now only on it and need a pull request, then a `MAIN_REFRESH_FIX` line with the
+`git push -u origin <branch>` command.
 
-Do not treat either PARKED line as the whole output: always read the line after it too.
+Do not treat either PARKED line as the whole output: always read the lines after it too.
 
 The parked branch is an ordinary branch. Nothing about it is special: rebase it, cherry-pick from
 it, open a PR from it, or delete it when it has served its purpose.
@@ -124,7 +126,8 @@ it, open a PR from it, or delete it when it has served its purpose.
   every commit on a wip branch and then sets main to origin/main. Offer
   `git -C <main> log --oneline origin/main..HEAD` if they want to read the commits first.
 - `PARKED`: give the branch name and worktree path. Say the work is committed there and main is
-  now at origin/main. Ask whether they want a PR from the parked branch or to leave it.
+  now at origin/main. After a DIVERGED park the commits are only on that branch, so a pull request from it is the way
+  to keep them. Ask whether they want that PR or to leave it.
 - `LOCKED`: show the lock path and age. Ask before running the `rm` the FIX line suggests, and
   confirm no git command of theirs is running.
 - `SKIP`: state the reason from the line (no origin, no main, not fetched). Run `git fetch origin`
