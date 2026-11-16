@@ -61,7 +61,9 @@ branch and saying the commits are only on that branch and need a pull request, t
 `MAIN_REFRESH_FIX` line with the `git push -u origin <branch>` command.
 
 When the repository ships its own script, every `MAIN_REFRESH` line you see comes from that
-script. Run its FIX lines as printed from the repository root, use the repository's `check`,
+script. Run its FIX lines as printed from the root of the checkout whose copy the hook ran (the
+main worktree when it has `scripts/main-refresh-paths.txt`, else this checkout when it has
+`scripts/main-refresh.sh`, else the main worktree), use the repository's `check`,
 `apply` and `park`, and do not run the plugin's copy there. The absolute-path claim for FIX lines,
 the exit codes, the state list and the invariants on this page describe the plugin's copy only.
 

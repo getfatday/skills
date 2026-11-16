@@ -28,13 +28,24 @@ running `check` is always free.
 ## When the repository ships its own script
 
 The hook runs the repository's `scripts/main-refresh.sh` when the repository has one, and the
-plugin's copy only when it has none. Check with `ls scripts/main-refresh.sh` in the repository root.
+plugin's copy only when it has none. It looks in two places: the main worktree and this checkout.
+Check both:
+
+```
+main_wt="$(git worktree list --porcelain | awk '/^worktree /{print substr($0,10); exit}')"
+ls "$main_wt/scripts/main-refresh.sh" scripts/main-refresh.sh
+```
+
+The repository ships the script when either path exists.
 
 When the repository ships the script, every `MAIN_REFRESH` line in the conversation comes from that
 script, not from the plugin's copy. Follow these rules there:
 
-- Run a `MAIN_REFRESH_FIX` line as printed, from the repository root. The repository's lines use
-  relative paths such as `scripts/main-refresh.sh unenroll`, so they fail from any other directory.
+- Run a `MAIN_REFRESH_FIX` line as printed, from the root of the checkout whose copy the hook ran.
+  That is the main worktree when it has `scripts/main-refresh-paths.txt`. Otherwise it is this
+  checkout when it has `scripts/main-refresh.sh`, and the main worktree when it does not. The
+  repository's lines use relative paths such as `scripts/main-refresh.sh unenroll`, so they fail
+  from any other directory.
 - Use the repository's `check`, `apply` and `park`. Do not run the plugin's copy in that repository.
   The plugin's `park` on a path the repository's script refused to move makes a full worktree and
   leaves the change only on a `wip/main-<date>-<n>` branch.

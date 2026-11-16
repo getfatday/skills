@@ -1,6 +1,6 @@
 {
   "name": "main-refresh",
-  "description": "Keep a local main checkout equal to origin/main for people who do their branch work in Claude worktrees: decide safety before acting, fast-forward only when no local file is touched, and park local work (dirty files, colliding untracked files, local-only commits) losslessly on a wip/main-<date>-<n> branch. Never stashes, never deletes a lock, never resets without parking first.",
+  "description": "Keep a local main checkout equal to origin/main for people who do their branch work in Claude worktrees: decide safety before acting, fast-forward only when no local file is touched, and park local work (dirty files, colliding untracked files, local-only commits) losslessly on a wip/main-<date>-<n> branch. The plugin's own copy never stashes, never deletes a lock and never resets without parking first. When the repository ships its own scripts/main-refresh.sh, the hook runs that script instead, and its rules apply.",
   "version": "0.2.0",
   "author": {
     "name": "getfatday"
