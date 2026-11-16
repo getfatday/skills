@@ -25,6 +25,39 @@ This skill wraps one script. Run it, read the one MAIN_REFRESH line it prints, a
 MAIN_REFRESH_FIX line if there is one. The script decides safety before it changes anything, so
 running `check` is always free.
 
+## When the repository ships its own script
+
+The hook runs the repository's `scripts/main-refresh.sh` when the repository has one, and the
+plugin's copy only when it has none. It looks in two places: the main worktree and this checkout.
+Check both:
+
+```
+main_wt="$(git worktree list --porcelain | awk '/^worktree /{print substr($0,10); exit}')"
+ls "$main_wt/scripts/main-refresh.sh" scripts/main-refresh.sh
+```
+
+The repository ships the script when either path exists.
+
+When the repository ships the script, every `MAIN_REFRESH` line in the conversation comes from that
+script, not from the plugin's copy. Follow these rules there:
+
+- Run a `MAIN_REFRESH_FIX` line as printed, from the root of the checkout whose copy the hook ran.
+  That is the main worktree when it has `scripts/main-refresh-paths.txt`. Otherwise it is this
+  checkout when it has `scripts/main-refresh.sh`, and the main worktree when it does not. The
+  repository's lines use relative paths such as `scripts/main-refresh.sh unenroll`, so they fail
+  from any other directory.
+- Use the repository's `check`, `apply` and `park`. Do not run the plugin's copy in that repository.
+  The plugin's `park` on a path the repository's script refused to move makes a full worktree and
+  leaves the change only on a `wip/main-<date>-<n>` branch.
+- Read the repository's own docs for lines this skill does not list, such as ENROLLED, SIPHONED,
+  SIPHON_BLOCKED, RETIRED_CLEARED, DIRTY_MAIN, PARKED_WORK, DRAIN_PENDING and DRAIN_STUCK.
+- The repository's `apply` can enroll, siphon and restore listed paths and remove a stale lock
+  before it prints BLOCKED. A BLOCKED line there does not mean nothing changed.
+
+The rest of this page describes the plugin's own copy only: the absolute-path claim for FIX lines,
+the commands and states tables, the park section, the invariants, and the notes on what a hook
+changed.
+
 ## Run it
 
 From any checkout of the repository (the main checkout or any worktree):
@@ -94,9 +127,11 @@ On DIVERGED: the same branch is created at the current main HEAD, so every local
 reachable from it. Dirty and colliding files are committed on top when there are any. Main is
 then reset to origin/main, because a fast-forward is impossible when histories differ. Output is
 `PARKED <n> path(s) and <k> commit(s) on branch <branch> at <dir>` followed by
-`APPLIED main reset to origin/main <sha>`.
+`APPLIED main reset to origin/main <sha>`, then a `WARNING` line that names the branch and says the
+commits are now only on it and need a pull request, then a `MAIN_REFRESH_FIX` line with the
+`git push -u origin <branch>` command.
 
-Do not treat either PARKED line as the whole output: always read the line after it too.
+Do not treat either PARKED line as the whole output: always read the lines after it too.
 
 The parked branch is an ordinary branch. Nothing about it is special: rebase it, cherry-pick from
 it, open a PR from it, or delete it when it has served its purpose.
@@ -106,6 +141,7 @@ it, open a PR from it, or delete it when it has served its purpose.
 - Never stash. The stash stack is shared by every worktree and session, and a bare stash can be
   popped by someone else. Parking uses a branch, which has a name and an owner.
 - Never delete a lock. A LOCKED state names the file and the age; removing it is the person's call.
+  (The plugin's copy never removes a lock. A repository's script may remove a stale one.)
 - Never reset without parking first. Main only moves after the bytes it would overwrite are in a
   commit on a named branch.
 - Everything is reversible. Parked branches are plain branches; `git log <branch>` shows what was
@@ -124,7 +160,8 @@ it, open a PR from it, or delete it when it has served its purpose.
   every commit on a wip branch and then sets main to origin/main. Offer
   `git -C <main> log --oneline origin/main..HEAD` if they want to read the commits first.
 - `PARKED`: give the branch name and worktree path. Say the work is committed there and main is
-  now at origin/main. Ask whether they want a PR from the parked branch or to leave it.
+  now at origin/main. After a DIVERGED park the commits are only on that branch, so a pull request from it is the way
+  to keep them. Ask whether they want that PR or to leave it.
 - `LOCKED`: show the lock path and age. Ask before running the `rm` the FIX line suggests, and
   confirm no git command of theirs is running.
 - `SKIP`: state the reason from the line (no origin, no main, not fetched). Run `git fetch origin`
@@ -146,7 +183,8 @@ string match), strip the trailing `# comment` first, or the comparison will not 
 ## When a hook printed a MAIN_REFRESH line
 
 The plugin's UserPromptSubmit hook runs `apply --quiet` on every prompt in repositories that have
-at least one Claude worktree. An `APPLIED` line means main just moved; nothing to do. A `BLOCKED`
-or `DIVERGED` line means the hook changed nothing and is asking for a decision. Surface the line
+at least one Claude worktree. An `APPLIED` line means main just moved; nothing to do. With the plugin's own copy, a `BLOCKED`
+or `DIVERGED` line means the hook changed nothing and is asking for a decision. With a repository
+script, it can already have changed other listed paths (see above). Surface the line
 to the user, explain the state in one sentence, and offer the FIX command. Do not run `park`
 without telling the user what it will move.

@@ -243,6 +243,8 @@ Moved by main-refresh park so main could fast-forward. $moved path(s)." >/dev/nu
     fi
     say "PARKED $moved path(s) and $ahead commit(s) on branch $branch at $wt_dir"
     say "APPLIED main reset to origin/main ${remote_sha:0:9}"
+    say "WARNING the $ahead local-only commit(s) are now only on branch $branch; main no longer has them. Open a pull request from $branch to keep them."
+    fix "git -C '$wt_dir' push -u origin $branch   # then open a pull request from $branch"
     exit 0
   fi
   say "PARKED $moved path(s) on branch $branch at $wt_dir"
